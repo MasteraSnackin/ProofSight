@@ -1,14 +1,16 @@
 # ProofSight
 
-Local-first AI health and safety inspection agent for Raspberry Pi 5.
+Local-first autonomous AI health and safety inspection agent for Raspberry Pi 5.
 
 ## Description
 
-ProofSight is a Raspberry Pi 5 inspection appliance that captures workplace evidence from a webcam, checks whether the image is usable, analyses visible health and safety risks, and produces inspection reports, traces, action items and dashboard views.
+ProofSight is a Raspberry Pi 5 inspection appliance for building a self-contained autonomous AI agent: webcam evidence capture, on-device evidence validation, local memory, inspection decisions, task execution, reports, traces, action items and dashboard views. The intended physical product is a Pi5 box with a screen and webcam that can operate from local controls, dashboard, or Telegram.
 
 ProofSight now works directly from Telegram in the current deployment. A user can send plain-language requests such as `take picture and check it` or `Take a picture and do the report`; the Pi captures a fresh webcam image, runs the evidence trust check, analyses visible hazards, and returns inspection findings or a short report back in the chat.
 
-The current deployment keeps camera capture, image validation, evidence storage, reports, traces, dashboard, Telegram operation and Pi-local `moondream` vision on the Raspberry Pi. HSE reasoning and report decisions are configured to use LM Studio on a MacBook over Tailscale. If LM Studio is unreachable, ProofSight records `model_error` rather than inventing findings.
+The current deployment keeps camera capture, image validation, evidence storage, reports, traces, dashboard, Telegram operation, local memory and Pi-local `moondream` vision on the Raspberry Pi. HSE reasoning and report decisions are currently configured to use LM Studio on a MacBook over Tailscale. The project direction is to move reasoning and task execution fully onto the Pi5 where practical, so the deployed appliance can operate self-contained. If LM Studio or any model dependency is unreachable, ProofSight records `model_error` rather than inventing findings.
+
+In short: **current system = Pi-first with MacBook reasoning assist**, **target system = fully self-contained Pi5 autonomous inspection appliance with screen + webcam**.
 
 ProofSight is an inspection assistant, not a replacement for a competent human inspector. Reports are draft outputs and should be reviewed before formal compliance, legal or enforcement use.
 
@@ -32,6 +34,8 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 ## Features
 
 - Telegram-first operation for live inspection requests from chat.
+- Designed for a self-contained Pi5 appliance with local screen, webcam and dashboard controls.
+- Autonomous inspection loop: capture evidence, validate it, recall memory, generate findings, create actions and await human review.
 - Webcam evidence capture through V4L2 and `ffmpeg`.
 - Local image trust gate that rejects dark, blank, obstructed or suspiciously small evidence.
 - Pi-local vision description through Ollama `moondream`.
@@ -55,14 +59,14 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 | Layer | Technology |
 |---|---|
 | Runtime | Python 3.13 |
-| Hardware target | Raspberry Pi 5 |
+| Hardware target | Raspberry Pi 5 appliance with webcam and optional local screen/touch display |
 | Camera | Logitech Brio / V4L2 device at `/dev/video0` |
 | Capture tools | `ffmpeg`, `v4l2-ctl` |
 | Image validation | Pillow |
 | Local vision server | Ollama at `http://127.0.0.1:11434` |
 | Vision model | `moondream` |
-| Reasoning server | LM Studio at `http://<MACBOOK_TAILSCALE_IP>:1234/v1` over Tailscale |
-| Reasoning/report model | `local-model` placeholder until LM Studio exposes the exact model ID |
+| Reasoning server | Current: LM Studio at `http://<MACBOOK_TAILSCALE_IP>:1234/v1` over Tailscale. Target: Pi-local reasoning model/service. |
+| Reasoning/report model | Current: `local-model` placeholder until LM Studio exposes the exact model ID. Target: Pi-local small reasoning model. |
 | Storage | SQLite and local files |
 | Dashboard | Python standard library `ThreadingHTTPServer` |
 | Chat operation | Telegram via Hermes/gateway routing to the Pi runtime |
@@ -74,8 +78,10 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 
 ```mermaid
 flowchart LR
-  Operator[Operator] --> Telegram[Telegram Chat]
+  Operator[Operator] --> Screen[Local Screen / Touch UI]
+  Operator --> Telegram[Telegram Chat]
   Operator --> Dashboard[ProofSight Dashboard :8787]
+  Screen --> Agent[ProofSight CLI / Monitor]
   Telegram --> Agent[ProofSight CLI / Monitor]
   Dashboard --> Agent[ProofSight CLI / Monitor]
   Agent --> Camera[Webcam /dev/video0]
@@ -91,7 +97,17 @@ flowchart LR
   Vercel --> Repo[GitHub Repository]
 ```
 
-The inspection appliance runs on the Raspberry Pi. It captures evidence, validates the image locally, sends only usable evidence into the model pipeline, stores reports and traces on disk, and exposes local dashboard views. The Vercel site is only a public project page; it does not expose the Pi camera, SQLite database or local dashboard controls.
+The inspection appliance runs on the Raspberry Pi. It captures evidence, validates the image locally, sends only usable evidence into the model pipeline, stores reports and traces on disk, and exposes local dashboard views. The intended hardware form is a Pi5 with webcam and screen for local operation; Telegram remains a remote-control channel. The Vercel site is only a public project page; it does not expose the Pi camera, SQLite database or local dashboard controls.
+
+### Self-contained Pi5 appliance target
+
+ProofSight is being shaped as an autonomous local agent rather than a cloud SaaS workflow. The appliance target is:
+
+- **Input:** attached webcam, local screen/touch UI, dashboard controls and Telegram commands.
+- **Decision loop:** validate evidence, recall previous hazards, analyse the scene, draft findings, create action items, and ask for human review where required.
+- **Execution loop:** write local reports, update SQLite, append trace/memory streams, expose dashboard/API state, and package audit evidence.
+- **Data boundary:** keep evidence, reports, traces, action history and memory on the Pi unless an optional adapter is explicitly configured.
+- **Model boundary:** current reasoning can use MacBook LM Studio over Tailscale; the target is Pi-local reasoning so all process, decision-making and task execution can happen on-device.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system architecture, data flow, data model and trade-offs.
 

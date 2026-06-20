@@ -2,20 +2,23 @@
 
 ## Overview
 
-ProofSight is a local-first health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, runs Pi-local vision through Ollama, sends reasoning and report decisions to LM Studio on a MacBook over Tailscale, generates inspection reports and action items, and exposes the result through a local dashboard.
+ProofSight is a local-first autonomous health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, recalls local memory, runs Pi-local vision through Ollama, generates inspection reports and action items, and exposes the result through a local dashboard, Telegram and a planned local screen UI.
 
-The deployed runtime is intentionally edge-oriented. The Raspberry Pi owns camera access, evidence validation, evidence storage, the SQLite database, reports, traces, partner-aligned JSONL artifacts and the dashboard. The MacBook LM Studio service is a trusted LAN/Tailscale reasoning dependency. If that dependency is unavailable, ProofSight records `model_error` rather than silently falling back or inventing findings.
+The deployed runtime is intentionally edge-oriented. The Raspberry Pi owns camera access, evidence validation, evidence storage, the SQLite database, reports, traces, partner-aligned JSONL artifacts and the dashboard. In the current deployment, the MacBook LM Studio service is a trusted LAN/Tailscale reasoning dependency. The target architecture is a fully self-contained Pi5 appliance where all process, decision-making and task execution run on-device with an attached screen and webcam. If any model dependency is unavailable, ProofSight records `model_error` rather than silently falling back or inventing findings.
 
 A static Vercel landing page exists for public project presentation. It is not the operational dashboard and does not expose camera access, local reports, SQLite data or systemd controls.
 
 ## Key Requirements
 
 - Run on a Raspberry Pi 5 with local storage.
+- Support a physical appliance form factor: Pi5, webcam and local screen/touch UI.
 - Capture evidence from a local webcam at `/dev/video0`.
 - Validate evidence quality before model inference.
 - Reject dark, blank, obstructed or suspiciously small images by default.
 - Use Pi-local Ollama for vision.
 - Use LM Studio over Tailscale for reasoning and report decisions in the current deployment.
+- Move toward Pi-local reasoning so the appliance can operate fully self-contained.
+- Execute the inspection loop locally: capture, validate, remember, reason, report, create actions and request review.
 - Generate human-readable Markdown reports.
 - Store inspection metadata, action items and review states in SQLite.
 - Keep evidence, traces and partner-aligned artifacts on-device.
@@ -27,8 +30,12 @@ A static Vercel landing page exists for public project presentation. It is not t
 
 ```mermaid
 flowchart LR
-  Operator[Operator] --> LocalDash[Local Dashboard :8787]
+  Operator[Operator] --> Screen[Local Screen / Touch UI]
+  Operator --> LocalDash[Local Dashboard :8787]
+  Operator --> Telegram[Telegram Chat]
   Operator --> CLI[ProofSight CLI]
+  Screen --> Agent[ProofSight Agent / Monitor]
+  Telegram --> Agent
   LocalDash --> Agent[ProofSight Agent / Monitor]
   CLI --> Agent
   Agent --> Camera[Webcam /dev/video0]
@@ -47,7 +54,23 @@ flowchart LR
   Vercel --> GitHub[GitHub Repository]
 ```
 
-The private runtime path is the Pi appliance and trusted MacBook reasoning service. The public Vercel path is only a static project page backed by the GitHub repository. This boundary is important because the operational dashboard currently has no authentication and serves local inspection data.
+The private runtime path is the Pi appliance plus, in the current deployment, a trusted MacBook reasoning service. The target runtime path removes that dependency by moving reasoning/task execution onto the Pi where model size and latency allow. The public Vercel path is only a static project page backed by the GitHub repository. This boundary is important because the operational dashboard currently has no authentication and serves local inspection data.
+
+## Self-Contained Appliance Target
+
+ProofSight is being built as a local autonomous agent, not a remote SaaS workflow. The intended appliance is a Raspberry Pi 5 with webcam and screen that can perform the whole inspection loop on-device:
+
+| Loop stage | Current implementation | Self-contained target |
+|---|---|---|
+| Input | Telegram, CLI, dashboard, webcam | Local screen/touch UI, Telegram, CLI, dashboard, webcam |
+| Evidence trust | Pi-local Pillow validation | Same, with site-tuned thresholds |
+| Vision | Pi-local Ollama `moondream` | Same or upgraded Pi-local vision model |
+| Memory | SQLite recurrence lookup plus Cognee-style JSONL | Same, with optional official Cognee SDK/API if explicitly configured |
+| Reasoning | LM Studio on MacBook over Tailscale | Pi-local small reasoning model/service where practical |
+| Task execution | Writes reports, DB rows, actions, traces and audit packs locally | Same, plus richer local UI action workflow |
+| Review | Dashboard and Telegram response | Local screen, dashboard and Telegram response |
+
+The important architectural constraint is that the agent must fail closed: if evidence is bad or a model is unavailable, it records the failure and asks for review instead of making up findings.
 
 ## Component Details
 
