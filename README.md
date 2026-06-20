@@ -1,14 +1,14 @@
 # ProofSight
 
-Local trusted health and safety inspection agent for Raspberry Pi 5.
+Local-first AI health and safety inspection agent for Raspberry Pi 5.
 
 ## Description
 
-ProofSight is a local-first inspection appliance that captures workplace evidence from a webcam, validates whether the image is usable, analyses visible health and safety risks with local or LAN/Tailscale-hosted models, and produces reports, traces, action items and dashboard views.
+ProofSight is a Raspberry Pi 5 inspection appliance that captures workplace evidence from a webcam, checks whether the image is usable, analyses visible health and safety risks, and produces inspection reports, traces, action items and dashboard views.
 
-The current deployment is Scenario B: the Raspberry Pi 5 keeps camera capture, evidence validation, dashboard, storage and Pi-local `moondream` vision, while HSE reasoning/report decisions are configured to use LM Studio on a MacBook over Tailscale. If LM Studio is not reachable, ProofSight records a `model_error` instead of inventing findings.
+The current deployment keeps camera capture, image validation, evidence storage, reports, traces, dashboard and Pi-local `moondream` vision on the Raspberry Pi. HSE reasoning and report decisions are configured to use LM Studio on a MacBook over Tailscale. If LM Studio is unreachable, ProofSight records `model_error` rather than inventing findings.
 
-ProofSight is not a replacement for a competent human inspector. Its reports are draft inspection outputs and should be reviewed before they are used for formal compliance, legal or enforcement decisions.
+ProofSight is an inspection assistant, not a replacement for a competent human inspector. Reports are draft outputs and should be reviewed before formal compliance, legal or enforcement use.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ ProofSight is not a replacement for a competent human inspector. Its reports are
 - [Usage](#usage)
 - [Configuration](#configuration)
 - [Screenshots or Demo](#screenshots-or-demo)
-- [CLI and Dashboard Reference](#cli-and-dashboard-reference)
+- [API and CLI Reference](#api-and-cli-reference)
 - [Tests](#tests)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
@@ -29,12 +29,12 @@ ProofSight is not a replacement for a competent human inspector. Its reports are
 ## Features
 
 - Webcam evidence capture through V4L2 and `ffmpeg`.
-- Local image trust gate that rejects dark, blank or suspiciously small evidence.
-- Local vision description using Ollama `moondream`.
+- Local image trust gate that rejects dark, blank, obstructed or suspiciously small evidence.
+- Pi-local vision description through Ollama `moondream`.
 - HSE reasoning and action-plan generation through LM Studio over Tailscale.
-- Markdown inspection reports with image validation, summary and action plan sections.
-- SQLite inspection memory with inspection and action item tables.
-- JSON traces for each inspection.
+- Markdown inspection reports with validation, summary, findings and action-plan sections.
+- SQLite inspection memory with inspection, action item and review tables.
+- JSON trace file for each inspection.
 - Partner-aligned artifact streams:
   - Captur-style local evidence validation.
   - Cognee-style JSONL memory ingest queue.
@@ -44,6 +44,7 @@ ProofSight is not a replacement for a competent human inspector. Its reports are
 - Audit-pack ZIP export containing evidence, report, trace and manifest.
 - Human review controls for approving, rejecting or requesting a retake.
 - Systemd user services for the inspection monitor and dashboard.
+- Static public landing page configured for Vercel deployment.
 
 ## Tech Stack
 
@@ -52,15 +53,17 @@ ProofSight is not a replacement for a competent human inspector. Its reports are
 | Runtime | Python 3.13 |
 | Hardware target | Raspberry Pi 5 |
 | Camera | Logitech Brio / V4L2 device at `/dev/video0` |
-| Capture | `ffmpeg`, `v4l2-ctl` |
+| Capture tools | `ffmpeg`, `v4l2-ctl` |
 | Image validation | Pillow |
 | Local vision server | Ollama at `http://127.0.0.1:11434` |
 | Vision model | `moondream` |
 | Reasoning server | LM Studio at `http://100.106.72.5:1234/v1` over Tailscale |
-| Reasoning/report model | `local-model` placeholder until LM Studio `/v1/models` exposes the exact model ID |
+| Reasoning/report model | `local-model` placeholder until LM Studio exposes the exact model ID |
 | Storage | SQLite and local files |
-| Dashboard | Python standard library `http.server` |
+| Dashboard | Python standard library `ThreadingHTTPServer` |
 | Service manager | systemd user services |
+| Public landing page | Static HTML in `public/index.html`, Vercel config in `vercel.json` |
+| Node tooling | Node.js 22.22.3, npm 10.9.8 for the static Vercel build script |
 
 ## Architecture Overview
 
@@ -77,9 +80,11 @@ flowchart LR
   Agent --> Files[Evidence, Reports, Traces]
   Files --> Dashboard
   Store --> Dashboard
+  Public[Public Viewer] --> Vercel[Vercel Static Landing Page]
+  Vercel --> Repo[GitHub Repository]
 ```
 
-The inspection monitor captures evidence from the webcam, validates it locally, and only sends usable images into the model pipeline. Vision currently runs on Pi-local Ollama, while reasoning/report decisions are configured for LM Studio on the MacBook over Tailscale. Reports, traces and action items are written to local storage, then surfaced through the dashboard and reporting views.
+The inspection appliance runs on the Raspberry Pi. It captures evidence, validates the image locally, sends only usable evidence into the model pipeline, stores reports and traces on disk, and exposes local dashboard views. The Vercel site is only a public project page; it does not expose the Pi camera, SQLite database or local dashboard controls.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system architecture, data flow, data model and trade-offs.
 
@@ -108,23 +113,31 @@ PyYAML
 Pillow
 ```
 
-There is currently no committed `requirements.txt`. If recreating the project on a fresh machine, install Python dependencies in a virtual environment or through the system package manager used by the target device.
+There is currently no committed `requirements.txt` or `pyproject.toml`. If recreating the project on a fresh machine, install Python dependencies in a virtual environment or through the system package manager used by the target device.
 
-Example setup outline:
+Clone and verify the repository:
+
+```bash
+git clone git@github.com:MasteraSnackin/ProofSight.git
+cd ProofSight
+python3 -m py_compile proofsight.py vasper_qa.py dashboard.py partners.py camera_test.py
+```
+
+For the existing Pi deployment:
 
 ```bash
 cd /home/dave/hse-pi-agent
-python3 -m py_compile proofsight.py vasper_qa.py dashboard.py partners.py
+python3 -m py_compile proofsight.py vasper_qa.py dashboard.py partners.py camera_test.py
 ```
 
-Ensure Ollama is running and the required models are available:
+Ensure Ollama is running and the required local vision model is available:
 
 ```bash
 systemctl --user status ollama.service
 ollama list
 ```
 
-Expected local Pi model for the current Scenario B vision step:
+Expected Pi-local model:
 
 ```text
 moondream
@@ -182,6 +195,19 @@ Start or inspect the dashboard service:
 systemctl --user enable --now proofsight-dashboard.service
 systemctl --user status proofsight-dashboard.service
 journalctl --user -u proofsight-dashboard.service -f
+```
+
+Build the static public landing page:
+
+```bash
+npm run build
+```
+
+Deploy the public landing page to Vercel after authenticating the Vercel CLI:
+
+```bash
+npx vercel@54.14.2 login
+npx vercel@54.14.2 deploy --prod --yes
 ```
 
 ## Configuration
@@ -248,18 +274,18 @@ No API keys are required for the current local Ollama vision step. LM Studio nor
 
 ## Screenshots or Demo
 
-Dashboard URLs in the current Pi deployment:
+Local dashboard URLs in the current Pi deployment:
 
 ```text
 http://127.0.0.1:8787
-http://100.105.97.23:8787
-http://10.101.151.73:8787
+http://<PI_TAILSCALE_IP>:8787
+http://<PI_LAN_IP>:8787
 ```
 
 Reporting dashboard:
 
 ```text
-http://100.105.97.23:8787/reports
+http://<PI_TAILSCALE_IP>:8787/reports
 ```
 
 Health and API endpoints:
@@ -271,9 +297,15 @@ http://127.0.0.1:8787/api/reports
 http://127.0.0.1:8787/reports.csv
 ```
 
-Screenshots are not currently committed. Add dashboard screenshots to a future `docs/` or `assets/` directory if this project is prepared for a public submission.
+Public landing page:
 
-## CLI and Dashboard Reference
+```text
+<ADD VERCEL URL>
+```
+
+Screenshots are not currently committed. Add dashboard screenshots to a future `docs/` or `assets/` directory if this project is prepared for public submission.
+
+## API and CLI Reference
 
 ### CLI
 
@@ -324,7 +356,13 @@ Compile Python files:
 
 ```bash
 cd /home/dave/hse-pi-agent
-python3 -m py_compile dashboard.py proofsight.py vasper_qa.py partners.py
+python3 -m py_compile dashboard.py proofsight.py vasper_qa.py partners.py camera_test.py
+```
+
+Run the static landing page build check:
+
+```bash
+npm run build
 ```
 
 Check services:
@@ -363,6 +401,7 @@ image_too_dark_or_obstructed
 - Add automated unit tests for image validation, JSON parsing, report writing and dashboard routes.
 - Add authentication for the dashboard before exposing it beyond trusted LAN or Tailscale networks.
 - Replace the temporary `local-model` LM Studio model ID with the exact model ID once `/v1/models` is reachable.
+- Complete Vercel authentication and replace `<ADD VERCEL URL>` with the live public landing page URL.
 - Add a real official Cognee ingestion worker if Cognee is installed and configured.
 - Add official Captur, Overmind or Exo integrations when tested SDKs or endpoints are available.
 - Add dashboard screenshots and demo media.
@@ -370,13 +409,14 @@ image_too_dark_or_obstructed
 
 ## Contributing
 
-This project is currently a local prototype rather than a public open-source repository. If it is published, suggested contribution areas are:
+This project is currently a local prototype rather than a mature public open-source project. If it is published for wider contribution, useful areas include:
 
 - image validation tests
 - dashboard UX improvements
-- LM Studio provider adapter
+- LM Studio provider adapter hardening
 - official sponsor integrations
 - documentation and deployment hardening
+- dashboard authentication and access control
 
 ## Licence
 

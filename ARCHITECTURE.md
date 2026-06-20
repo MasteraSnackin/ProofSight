@@ -2,46 +2,52 @@
 
 ## Overview
 
-ProofSight is a local-first health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, runs Pi-local vision through Ollama, sends reasoning/report decisions to LM Studio on a MacBook over Tailscale, generates inspection reports and action items, and exposes the result through a local dashboard.
+ProofSight is a local-first health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, runs Pi-local vision through Ollama, sends reasoning and report decisions to LM Studio on a MacBook over Tailscale, generates inspection reports and action items, and exposes the result through a local dashboard.
 
-The current system is Scenario B: the camera, validation logic, Pi-local vision model, storage, traces, reports and dashboard run on the Pi, while reasoning/report decisions are configured to use LM Studio on a MacBook over Tailscale. If the MacBook LM Studio server is unreachable, ProofSight records `model_error` and keeps the inspection auditable instead of silently falling back or inventing findings.
+The deployed runtime is intentionally edge-oriented. The Raspberry Pi owns camera access, evidence validation, evidence storage, the SQLite database, reports, traces, partner-aligned JSONL artifacts and the dashboard. The MacBook LM Studio service is a trusted LAN/Tailscale reasoning dependency. If that dependency is unavailable, ProofSight records `model_error` rather than silently falling back or inventing findings.
 
-ProofSight is designed as an evidence-led inspection assistant. It should reject unusable evidence rather than invent findings from dark, blank or obstructed frames.
+A static Vercel landing page exists for public project presentation. It is not the operational dashboard and does not expose camera access, local reports, SQLite data or systemd controls.
 
 ## Key Requirements
 
 - Run on a Raspberry Pi 5 with local storage.
 - Capture evidence from a local webcam at `/dev/video0`.
 - Validate evidence quality before model inference.
-- Use Pi-local Ollama for vision and LM Studio over Tailscale for reasoning/report decisions in the current deployment.
+- Reject dark, blank, obstructed or suspiciously small images by default.
+- Use Pi-local Ollama for vision.
+- Use LM Studio over Tailscale for reasoning and report decisions in the current deployment.
 - Generate human-readable Markdown reports.
-- Store inspection metadata and action items in SQLite.
+- Store inspection metadata, action items and review states in SQLite.
 - Keep evidence, traces and partner-aligned artifacts on-device.
-- Provide a dashboard for operations, reporting, review and audit-pack export.
+- Provide a dashboard for operations, reporting, human review and audit-pack export.
 - Require human review before relying on AI-generated findings for formal compliance decisions.
-- Keep evidence capture, validation, storage and dashboard local to the Pi, while allowing reasoning to run on a trusted MacBook over Tailscale.
+- Keep the public Vercel deployment separate from the private Pi runtime.
 
 ## High-Level Architecture
 
 ```mermaid
 flowchart LR
-  Operator[Operator] --> Dashboard[Dashboard :8787]
-  Dashboard --> Agent[ProofSight CLI / Monitor]
+  Operator[Operator] --> LocalDash[Local Dashboard :8787]
+  Operator --> CLI[ProofSight CLI]
+  LocalDash --> Agent[ProofSight Agent / Monitor]
+  CLI --> Agent
   Agent --> Camera[Webcam /dev/video0]
   Agent --> Gate[Image Trust Gate]
-  Gate --> Vision[Ollama moondream]
-  Vision --> Reasoning[LM Studio on MacBook]
+  Gate --> Vision[Ollama moondream on Pi]
+  Vision --> Reasoning[LM Studio on MacBook over Tailscale]
   Reasoning --> Reports[Markdown Reports]
   Agent --> DB[(SQLite DB)]
   Agent --> Evidence[Evidence JPEGs]
-  Agent --> Traces[JSON Traces and JSONL Streams]
-  Reports --> Dashboard
-  DB --> Dashboard
-  Evidence --> Dashboard
-  Traces --> Dashboard
+  Agent --> Traces[JSON Traces / JSONL Streams]
+  Reports --> LocalDash
+  DB --> LocalDash
+  Evidence --> LocalDash
+  Traces --> LocalDash
+  Visitor[Public Visitor] --> Vercel[Vercel Static Landing Page]
+  Vercel --> GitHub[GitHub Repository]
 ```
 
-The operator interacts with the dashboard or CLI. ProofSight captures an image, validates it, runs the Pi-local vision step for usable evidence, and sends the resulting text observation to LM Studio for reasoning unless the provider is unreachable. Outputs are written to the local filesystem and SQLite database, then served back through the dashboard.
+The private runtime path is the Pi appliance and trusted MacBook reasoning service. The public Vercel path is only a static project page backed by the GitHub repository. This boundary is important because the operational dashboard currently has no authentication and serves local inspection data.
 
 ## Component Details
 
@@ -61,7 +67,7 @@ vasper_qa.py
 config.yaml
 ```
 
-`proofsight.py` is the current command entry point. `vasper_qa.py` remains as the implementation and compatibility path.
+`proofsight.py` is the current command entry point. `vasper_qa.py` remains as the implementation and compatibility path so older commands and imports do not break.
 
 ### Camera Capture
 
@@ -89,7 +95,7 @@ camera:
 - **Main technologies:** Pillow image loading and statistics.
 - **Data owned or transformed:** File size, resolution, mean RGB, pixel extrema, validity and rejection reason.
 - **External dependencies:** None beyond local image file access.
-- **Failure modes or operational concerns:** Thresholds may reject borderline low-light images. This is intentional for a trusted evidence workflow but may require tuning.
+- **Failure modes or operational concerns:** Thresholds may reject borderline low-light images. This is intentional for a trusted evidence workflow but may require tuning per site.
 
 Current validation thresholds:
 
@@ -100,7 +106,7 @@ validation:
   reject_blank_or_dark: true
 ```
 
-Common rejection status:
+Common rejection reason:
 
 ```text
 image_too_dark_or_obstructed
@@ -108,11 +114,11 @@ image_too_dark_or_obstructed
 
 ### Model Layer
 
-- **Responsibilities:** Describe valid images and convert observations into structured HSE findings.
+- **Responsibilities:** Describe valid images and convert observations into structured HSE findings and actions.
 - **Main technologies:** Ollama HTTP API at `http://127.0.0.1:11434/api/generate` for `moondream` vision; LM Studio OpenAI-compatible API at `http://100.106.72.5:1234/v1/chat/completions` for reasoning.
 - **Data owned or transformed:** Image description text, structured JSON findings and action plans.
-- **External dependencies:** Pi-local Ollama service, MacBook LM Studio server reachable over Tailscale, installed model in LM Studio.
-- **Failure modes or operational concerns:** Slow inference on Pi CPU, unreachable MacBook LM Studio server, wrong LM Studio model ID, timeout, unparseable JSON or hallucinated findings. The prompt instructs models not to invent hazards. Provider failures are recorded as `model_error`.
+- **External dependencies:** Pi-local Ollama service, MacBook LM Studio server reachable over Tailscale, installed LM Studio model.
+- **Failure modes or operational concerns:** Slow inference on Pi CPU, unreachable MacBook LM Studio server, wrong LM Studio model ID, timeout, unparseable JSON or hallucinated findings. Provider failures are recorded as `model_error`.
 
 Current model configuration:
 
@@ -133,7 +139,7 @@ models:
 - **Main technologies:** Python file writing, SQLite.
 - **Data owned or transformed:** Markdown reports, findings JSON, action items.
 - **External dependencies:** Local filesystem and SQLite database.
-- **Failure modes or operational concerns:** Model findings may be incomplete or need human correction; report outputs are drafts.
+- **Failure modes or operational concerns:** Model findings may be incomplete, over-cautious or need human correction. Reports are draft inspection outputs.
 
 Reports are stored in:
 
@@ -170,7 +176,7 @@ Routes:
 | `/` | Operations dashboard |
 | `/reports` | Reporting dashboard |
 | `/healthz` | Plain health check |
-| `/api/status` | Service status, camera health, latest inspections, partner status |
+| `/api/status` | Service status, camera health, latest inspections and partner status |
 | `/api/reports` | Reporting dataset as JSON |
 | `/reports.csv` | Inspection CSV export |
 | `/evidence/<file>` | Evidence image access |
@@ -196,6 +202,22 @@ Current partner status:
 | Exo Labs | Configured slot only; local Ollama is active |
 | Cosine | Engineering metadata only; not a runtime dependency |
 
+### Public Landing Page
+
+- **Responsibilities:** Present the project publicly without exposing operational controls or inspection data.
+- **Main technologies:** Static HTML, `package.json` build script, `vercel.json`.
+- **Data owned or transformed:** Public marketing and architecture summary only.
+- **External dependencies:** Vercel hosting after authentication and deployment.
+- **Failure modes or operational concerns:** The Vercel page can become stale if it is not kept in sync with the Pi runtime. It must not be treated as the live inspection dashboard.
+
+Files:
+
+```text
+public/index.html
+package.json
+vercel.json
+```
+
 ## Data Flow
 
 ```mermaid
@@ -205,7 +227,7 @@ sequenceDiagram
   participant Agent as ProofSight Agent
   participant Cam as Webcam
   participant Gate as Trust Gate
-  participant VLM as moondream
+  participant VLM as Ollama moondream
   participant LLM as LM Studio
   participant DB as SQLite
   participant FS as Local Files
@@ -224,15 +246,21 @@ sequenceDiagram
     Agent->>VLM: Describe image
     VLM-->>Agent: Observation text
     Agent->>LLM: Generate HSE JSON findings
-    LLM-->>Agent: Findings and actions
-    Agent->>FS: Write report, trace, evidence
-    Agent->>DB: Save inspection and action items
+    alt LM Studio unavailable or model error
+      LLM-->>Agent: provider error
+      Agent->>FS: Write model_error report and trace
+      Agent->>DB: Save model_error status
+    else Findings returned
+      LLM-->>Agent: Findings and actions
+      Agent->>FS: Write report, trace and evidence
+      Agent->>DB: Save inspection and action items
+    end
   end
   UI->>DB: Read latest state
   UI->>FS: Serve evidence, reports and traces
 ```
 
-The trust gate is deliberately placed before expensive and uncertain model inference. Dark, blank or suspicious images are reported as rejected evidence rather than passed to the model pipeline by default.
+The trust gate is deliberately placed before expensive and uncertain model inference. Dark, blank or suspicious images are reported as rejected evidence rather than passed to the model pipeline by default. Model provider failures are captured as inspection state so reviewers can distinguish bad evidence from infrastructure failure.
 
 ## Data Model
 
@@ -316,15 +344,43 @@ Unit path:
 /home/dave/.config/systemd/user/proofsight-dashboard.service
 ```
 
-### Dashboard endpoints
+### Local dashboard endpoints
 
 ```text
 http://127.0.0.1:8787
-http://100.105.97.23:8787
-http://10.101.151.73:8787
+http://<PI_TAILSCALE_IP>:8787
+http://<PI_LAN_IP>:8787
 ```
 
-The public deployment model is `<ADD DETAIL>` if this project is published outside the local Pi/Tailscale environment.
+### Public deployment
+
+The repository includes a Vercel-ready static landing page:
+
+```text
+public/index.html
+vercel.json
+package.json
+```
+
+Build command:
+
+```bash
+npm run build
+```
+
+Deployment command after Vercel authentication:
+
+```bash
+npx vercel@54.14.2 deploy --prod --yes
+```
+
+Current live public URL:
+
+```text
+<ADD VERCEL URL>
+```
+
+The Vercel deployment is intentionally separate from the Pi runtime. It should not proxy the unauthenticated dashboard or expose local evidence artifacts.
 
 ## Scalability and Reliability
 
@@ -334,19 +390,22 @@ Current reliability measures:
 
 - systemd restarts the agent and dashboard services.
 - Image validation prevents low-quality frames from generating misleading findings.
+- Provider errors are recorded as `model_error` rather than hidden.
 - Each inspection writes independent evidence, report and trace artifacts.
 - SQLite stores canonical inspection and action data.
 - Dashboard health and JSON API endpoints provide simple operational checks.
+- Public Vercel page remains independent of the operational Pi runtime.
 
 Known constraints:
 
-- Pi CPU inference is slow for vision and any local fallback reasoning.
+- Pi CPU inference is slow for larger models.
 - LM Studio reasoning depends on the MacBook being awake, on Tailscale and listening on the network interface.
 - The dashboard has no authentication.
 - SQLite is local only and has no replication.
 - There is no formal migration framework for database schema changes.
 - The camera can return dark or obstructed frames; this is surfaced as a camera health issue.
-- The current LM Studio endpoint is configured but not reachable from the Pi until LM Studio is bound to the MacBook network/Tailscale interface.
+- The current LM Studio model ID is a placeholder until `/v1/models` is reachable.
+- The Vercel landing page does not prove that the Pi appliance is online.
 
 ## Security and Compliance
 
@@ -356,11 +415,13 @@ The local Ollama vision step does not require API keys. LM Studio is expected to
 
 ### Client/server trust boundaries
 
-The dashboard is served over plain HTTP on `0.0.0.0:8787`. It is intended for trusted local networks or Tailscale only. It should not be exposed to the public internet without authentication, authorisation and TLS.
+The Pi dashboard is served over plain HTTP on `0.0.0.0:8787`. It is intended for trusted local networks or Tailscale only. It should not be exposed to the public internet without authentication, authorisation and TLS.
+
+The Vercel landing page is public and static. It should contain only public project information, not operational inspection data.
 
 ### Authentication and authorisation
 
-No dashboard authentication or role-based authorisation is currently implemented. Anyone who can reach the dashboard can view evidence, reports and traces, and can trigger dashboard actions.
+No dashboard authentication or role-based authorisation is currently implemented. Anyone who can reach the Pi dashboard can view evidence, reports and traces, and can trigger dashboard actions. This is acceptable only for trusted local/Tailscale testing, not public deployment.
 
 ### Sensitive data handling
 
@@ -369,6 +430,8 @@ Evidence images and inspection reports may contain workplace-sensitive visual in
 ### Third-party provider risk
 
 Current sponsor integrations are local placeholder or adapter-ready layers unless explicitly configured. Captur, Cognee, Overmind, Exo Labs and Cosine are not currently active remote runtime dependencies in the current LM Studio/Tailscale setup.
+
+LM Studio runs as a trusted local-network model provider. If it is misconfigured, offline or serving a different model than expected, ProofSight may produce `model_error` or lower-quality findings.
 
 ### Auditability and logging
 
@@ -396,6 +459,7 @@ Current observability surfaces:
   - `traces/cognee_ingest_queue.jsonl`
   - `traces/overmind_traces.jsonl`
 - Markdown reports and audit-pack ZIP exports.
+- Vercel deployment logs for the public static landing page, once deployed.
 
 Useful commands:
 
@@ -406,13 +470,14 @@ journalctl --user -u proofsight.service -f
 journalctl --user -u proofsight-dashboard.service -f
 curl http://127.0.0.1:8787/healthz
 curl http://127.0.0.1:8787/api/status
+npm run build
 ```
 
 ## Design Decisions and Trade-offs
 
 ### Local-first capture with local-network reasoning
 
-ProofSight keeps evidence capture, trust validation, reports, traces, database and dashboard on the Pi so that sensitive inspection artifacts remain local. Reasoning is configured to run on a trusted MacBook through Tailscale for better performance. The trade-off is that valid-image inspections now depend on the MacBook LM Studio server being reachable.
+ProofSight keeps evidence capture, trust validation, reports, traces, database and dashboard on the Pi so that sensitive inspection artifacts remain local. Reasoning is configured to run on a trusted MacBook through Tailscale for better performance. The trade-off is that valid-image inspections depend on the MacBook LM Studio server being reachable.
 
 ### Trust gate before model inference
 
@@ -425,6 +490,10 @@ SQLite plus local files are simple, inspectable and reliable for a single-device
 ### Standard-library dashboard
 
 The dashboard uses Python's standard library rather than FastAPI, Flask or React. This avoids dependency installation and keeps deployment simple on the Pi. The trade-off is less structure, less reusable UI code and limited security features.
+
+### Public static site instead of cloud dashboard
+
+The Vercel deployment is a static landing page rather than the live dashboard. This gives the project a public URL without exposing unauthenticated local controls or workplace evidence. The trade-off is that the public page is a demo/portfolio surface, not live operational proof.
 
 ### Adapter-ready sponsor integrations
 
@@ -441,6 +510,7 @@ Model output is treated as a draft. The dashboard includes review controls becau
 - Add automated tests for image validation, JSON parsing, database writes and dashboard endpoints.
 - Add a migration mechanism for SQLite schema changes.
 - Replace the temporary LM Studio `local-model` ID with the exact model ID once `/v1/models` is reachable.
+- Complete Vercel authentication and replace `<ADD VERCEL URL>` with the live public landing page URL.
 - Add official Cognee ingestion if Cognee is installed and configured.
 - Add official Captur, Overmind and Exo integrations only after SDK/API access is tested.
 - Add a camera diagnostics page for exposure, shutter and lighting problems.
