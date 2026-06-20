@@ -1,0 +1,62 @@
+agent:
+  name: ProofSight
+  role: Local Trusted Health & Safety Inspection Agent
+  site_name: Pi5 Local Test Site
+  inspector_name: ProofSight
+
+camera:
+  device: /dev/video0
+  width: 1280
+  height: 720
+  framerate: 10
+  warm_frames: 20
+  power_line_frequency: 1   # 1 = 50Hz UK, 2 = 60Hz
+
+models:
+  scenario: B_pi_camera_macbook_lmstudio
+  provider: lmstudio
+  # Pi-local Ollama remains the vision provider for moondream.
+  ollama_base_url: http://127.0.0.1:11434
+  vision: moondream
+  # MacBook LM Studio over Tailscale. LM Studio must bind to 0.0.0.0 / local network.
+  lmstudio_base_url: http://100.106.72.5:1234/v1
+  reasoning: local-model
+  report: local-model
+
+validation:
+  min_mean_brightness: 30
+  min_file_size_bytes: 25000
+  reject_blank_or_dark: true
+
+actions:
+  evidence_dir: /home/dave/hse-pi-agent/evidence
+  reports_dir: /home/dave/hse-pi-agent/reports
+  db_path: /home/dave/hse-pi-agent/data/proofsight.db
+  trace_dir: /home/dave/hse-pi-agent/traces
+
+inspection:
+  default_location: Unspecified location
+  require_human_review: true
+  risk_matrix: severity_x_likelihood
+
+partners:
+  captur:
+    mode: local_trust_gate
+    # Optional future adapter: set command or PROOFSIGHT_CAPTUR_COMMAND
+    # to an official Captur CLI/SDK wrapper when available.
+    command: null
+  cognee:
+    mode: sqlite_plus_ingest_queue
+    enabled: true
+  overmind:
+    mode: local_trace_jsonl
+    # Optional future adapter: set endpoint or PROOFSIGHT_OVERMIND_ENDPOINT
+    # to send traces to an official Overmind service when available.
+    endpoint: null
+  exo:
+    mode: ollama_local
+    # Optional future adapter: set base_url or PROOFSIGHT_EXO_BASE_URL
+    # when an Exo Labs distributed inference endpoint is running.
+    base_url: null
+  cosine:
+    mode: engineering_lane_metadata

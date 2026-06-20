@@ -1,0 +1,26 @@
+# Runtime data and generated artifacts
+/data/
+/evidence/
+/reports/
+/traces/
+/exports/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local environments
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Editor / OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
