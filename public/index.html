@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="ProofSight is a local-first Raspberry Pi 5 health and safety inspection agent with webcam evidence, local validation, reports, traces and human review.">
+  <meta name="description" content="ProofSight is a Telegram-operated, local-first Raspberry Pi 5 health and safety inspection agent with webcam evidence, local validation, memory, reports, traces and human review.">
   <title>ProofSight — Local AI Health & Safety Inspection Agent</title>
   <style>
     :root {
@@ -99,7 +99,7 @@
       <div>
         <div class="kicker">Local-first inspection appliance</div>
         <h1>AI health & safety inspections, running on a Raspberry Pi.</h1>
-        <p class="lead">ProofSight captures webcam evidence, rejects bad images, analyses visible hazards, writes inspection reports, logs traces, and keeps a human in the approval loop — without turning the workplace camera into a cloud dependency.</p>
+        <p class="lead">ProofSight works directly from Telegram: ask it to take a picture, check hazards or write a report. The Pi captures webcam evidence, rejects bad images, recalls similar past hazards, writes inspection reports, logs traces, and keeps a human in the approval loop — without turning the workplace camera into a cloud dependency.</p>
         <div class="buttons">
           <a class="btn primary" href="https://github.com/MasteraSnackin/ProofSight">View source</a>
           <a class="btn" href="#architecture">See architecture</a>
@@ -111,14 +111,14 @@
           <div class="screenbar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>ProofSight dashboard :8787</span></div>
           <div class="dash">
             <div class="statgrid">
-              <div class="stat"><b>Pi 5</b><span>camera, storage, dashboard</span></div>
-              <div class="stat"><b>Local</b><span>evidence trust gate</span></div>
+              <div class="stat"><b>Telegram</b><span>plain-language inspections</span></div>
+              <div class="stat"><b>Memory</b><span>recurring hazard recall</span></div>
               <div class="stat"><b>Human</b><span>review before approval</span></div>
             </div>
             <div class="finding">
               <span class="pill">sample inspection</span>
               <h3>Finding: walkway obstruction</h3>
-              <p>Risk-rated action plan generated only after the evidence image passes quality validation.</p>
+              <p>Risk-rated action plan generated only after the evidence image passes quality validation, with memory context from previous similar findings.</p>
             </div>
             <div class="finding warning">
               <span class="pill">safety behaviour</span>
@@ -133,9 +133,9 @@
     <section id="features" class="wrap">
       <h2>What it does</h2>
       <div class="grid">
-        <article class="card"><h3>Captures trusted evidence</h3><p>Uses a webcam on the Pi, validates image quality locally, and stores evidence with reports and traces.</p></article>
-        <article class="card"><h3>Finds visible H&S risks</h3><p>Combines Pi-local vision with LAN/Tailscale-hosted reasoning to draft hazards, risk levels and corrective actions.</p></article>
-        <article class="card"><h3>Shows its working</h3><p>SQLite memory, Markdown reports, JSON traces, audit-pack export and review controls keep decisions inspectable.</p></article>
+        <article class="card"><h3>Operates from Telegram</h3><p>Plain-language chat requests trigger fresh camera capture, evidence checks, hazard analysis and report replies.</p></article>
+        <article class="card"><h3>Remembers recurring risks</h3><p>SQLite plus Cognee-style JSONL memory compares new findings with previous inspections and adds Memory Context to reports.</p></article>
+        <article class="card"><h3>Shows its working</h3><p>Markdown reports, dashboard memory stats, JSON traces, audit-pack export and review controls keep decisions inspectable.</p></article>
       </div>
     </section>
 
@@ -145,8 +145,8 @@
         <div class="step"><b>1. Camera</b><br>Logitech Brio / V4L2 capture on Raspberry Pi 5.</div>
         <div class="step"><b>2. Trust gate</b><br>Rejects unusable evidence before model analysis.</div>
         <div class="step"><b>3. Vision</b><br>Ollama <code>moondream</code> describes visible scene evidence.</div>
-        <div class="step"><b>4. Reasoning</b><br>LM Studio over Tailscale drafts H&S findings and actions.</div>
-        <div class="step"><b>5. Review</b><br>Dashboard, reports, CSV/audit export and human approval.</div>
+        <div class="step"><b>4. Memory + reasoning</b><br>Local memory recall plus LM Studio reasoning drafts H&S findings and actions.</div>
+        <div class="step"><b>5. Review</b><br>Telegram replies, dashboard, reports, CSV/audit export and human approval.</div>
       </div>
       <p class="note">The Vercel deployment is a public project page. The real agent dashboard, camera access, SQLite data and systemd services remain on the Pi.</p>
     </section>
