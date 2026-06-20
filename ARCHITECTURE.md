@@ -2,7 +2,7 @@
 
 ## Overview
 
-ProofSight is a local-first health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, runs local model analysis through Ollama, generates inspection reports and action items, and exposes the result through a local dashboard.
+ProofSight is a local-first health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, runs Pi-local vision through Ollama, sends reasoning/report decisions to LM Studio on a MacBook over Tailscale, generates inspection reports and action items, and exposes the result through a local dashboard.
 
 The current system is Scenario B: the camera, validation logic, Pi-local vision model, storage, traces, reports and dashboard run on the Pi, while reasoning/report decisions are configured to use LM Studio on a MacBook over Tailscale. If the MacBook LM Studio server is unreachable, ProofSight records `model_error` and keeps the inspection auditable instead of silently falling back or inventing findings.
 
@@ -13,7 +13,7 @@ ProofSight is designed as an evidence-led inspection assistant. It should reject
 - Run on a Raspberry Pi 5 with local storage.
 - Capture evidence from a local webcam at `/dev/video0`.
 - Validate evidence quality before model inference.
-- Use local models through Ollama for the current deployment.
+- Use Pi-local Ollama for vision and LM Studio over Tailscale for reasoning/report decisions in the current deployment.
 - Generate human-readable Markdown reports.
 - Store inspection metadata and action items in SQLite.
 - Keep evidence, traces and partner-aligned artifacts on-device.
@@ -41,7 +41,7 @@ flowchart LR
   Traces --> Dashboard
 ```
 
-The operator interacts with the dashboard or CLI. ProofSight captures an image, validates it, and only sends usable evidence to local models unless the `--force` option is used. Outputs are written to the local filesystem and SQLite database, then served back through the dashboard.
+The operator interacts with the dashboard or CLI. ProofSight captures an image, validates it, runs the Pi-local vision step for usable evidence, and sends the resulting text observation to LM Studio for reasoning unless the provider is unreachable. Outputs are written to the local filesystem and SQLite database, then served back through the dashboard.
 
 ## Component Details
 
@@ -50,8 +50,8 @@ The operator interacts with the dashboard or CLI. ProofSight captures an image, 
 - **Responsibilities:** Run one inspection, run repeated inspections, show partner status, initialise directories and database tables.
 - **Main technologies:** Python 3.13, `argparse`, `sqlite3`, `subprocess`, `urllib.request`, PyYAML.
 - **Data owned or transformed:** Inspection IDs, image paths, validation results, model responses, findings, reports and traces.
-- **External dependencies:** `ffmpeg`, `v4l2-ctl`, Ollama HTTP API.
-- **Failure modes or operational concerns:** Camera capture can fail, Ollama can be unavailable, local models can return unparseable JSON, and dark frames are intentionally rejected.
+- **External dependencies:** `ffmpeg`, `v4l2-ctl`, Ollama HTTP API, LM Studio OpenAI-compatible API.
+- **Failure modes or operational concerns:** Camera capture can fail, Ollama can be unavailable, LM Studio can be unreachable, models can return unparseable JSON, and dark frames are intentionally rejected.
 
 Main files:
 
@@ -106,13 +106,13 @@ Common rejection status:
 image_too_dark_or_obstructed
 ```
 
-### Local Model Layer
+### Model Layer
 
 - **Responsibilities:** Describe valid images and convert observations into structured HSE findings.
-- **Main technologies:** Ollama HTTP API at `http://127.0.0.1:11434/api/generate`.
+- **Main technologies:** Ollama HTTP API at `http://127.0.0.1:11434/api/generate` for `moondream` vision; LM Studio OpenAI-compatible API at `http://100.106.72.5:1234/v1/chat/completions` for reasoning.
 - **Data owned or transformed:** Image description text, structured JSON findings and action plans.
-- **External dependencies:** Ollama service and installed local models.
-- **Failure modes or operational concerns:** Slow inference on Pi CPU, unavailable model, timeout, unparseable JSON or hallucinated findings. The prompt instructs models not to invent hazards.
+- **External dependencies:** Pi-local Ollama service, MacBook LM Studio server reachable over Tailscale, installed model in LM Studio.
+- **Failure modes or operational concerns:** Slow inference on Pi CPU, unreachable MacBook LM Studio server, wrong LM Studio model ID, timeout, unparseable JSON or hallucinated findings. The prompt instructs models not to invent hazards. Provider failures are recorded as `model_error`.
 
 Current model configuration:
 
@@ -250,7 +250,7 @@ The trust gate is deliberately placed before expensive and uncertain model infer
 | `findings_json` | Structured findings and model metadata |
 | `report_path` | Markdown report path |
 | `trace_path` | JSON trace path |
-| `status` | `image_rejected`, `no_finding` or `review_required` |
+| `status` | `image_rejected`, `model_error`, `no_finding` or `review_required` |
 
 ### `action_items`
 
@@ -340,12 +340,13 @@ Current reliability measures:
 
 Known constraints:
 
-- Pi CPU inference is slow for large prompts and valid-image inspections.
+- Pi CPU inference is slow for vision and any local fallback reasoning.
+- LM Studio reasoning depends on the MacBook being awake, on Tailscale and listening on the network interface.
 - The dashboard has no authentication.
 - SQLite is local only and has no replication.
 - There is no formal migration framework for database schema changes.
 - The camera can return dark or obstructed frames; this is surfaced as a camera health issue.
-- LM Studio over Tailscale is planned but not active until the MacBook server is reachable from the Pi.
+- The current LM Studio endpoint is configured but not reachable from the Pi until LM Studio is bound to the MacBook network/Tailscale interface.
 
 ## Security and Compliance
 
@@ -409,9 +410,9 @@ curl http://127.0.0.1:8787/api/status
 
 ## Design Decisions and Trade-offs
 
-### Local-first processing
+### Local-first capture with local-network reasoning
 
-ProofSight keeps the inspection loop on the Pi so that evidence and reports can remain local. The trade-off is slower inference compared with a laptop, GPU workstation or cloud provider.
+ProofSight keeps evidence capture, trust validation, reports, traces, database and dashboard on the Pi so that sensitive inspection artifacts remain local. Reasoning is configured to run on a trusted MacBook through Tailscale for better performance. The trade-off is that valid-image inspections now depend on the MacBook LM Studio server being reachable.
 
 ### Trust gate before model inference
 
@@ -439,7 +440,7 @@ Model output is treated as a draft. The dashboard includes review controls becau
 - Add a dependency manifest such as `requirements.txt` or `pyproject.toml`.
 - Add automated tests for image validation, JSON parsing, database writes and dashboard endpoints.
 - Add a migration mechanism for SQLite schema changes.
-- Add LM Studio provider support over Tailscale for Scenario B.
+- Replace the temporary LM Studio `local-model` ID with the exact model ID once `/v1/models` is reachable.
 - Add official Cognee ingestion if Cognee is installed and configured.
 - Add official Captur, Overmind and Exo integrations only after SDK/API access is tested.
 - Add a camera diagnostics page for exposure, shutter and lighting problems.

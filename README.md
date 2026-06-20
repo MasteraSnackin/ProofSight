@@ -4,7 +4,7 @@ Local trusted health and safety inspection agent for Raspberry Pi 5.
 
 ## Description
 
-ProofSight is a local-first inspection appliance that captures workplace evidence from a webcam, validates whether the image is usable, analyses visible health and safety risks with local models, and produces reports, traces, action items and dashboard views.
+ProofSight is a local-first inspection appliance that captures workplace evidence from a webcam, validates whether the image is usable, analyses visible health and safety risks with local or LAN/Tailscale-hosted models, and produces reports, traces, action items and dashboard views.
 
 The current deployment is Scenario B: the Raspberry Pi 5 keeps camera capture, evidence validation, dashboard, storage and Pi-local `moondream` vision, while HSE reasoning/report decisions are configured to use LM Studio on a MacBook over Tailscale. If LM Studio is not reachable, ProofSight records a `model_error` instead of inventing findings.
 
@@ -70,15 +70,16 @@ flowchart LR
   Dashboard --> Agent[ProofSight CLI / Monitor]
   Agent --> Camera[Webcam /dev/video0]
   Agent --> Gate[Local Image Trust Gate]
-  Gate --> Ollama[Ollama Local Models]
-  Ollama --> Report[Markdown Report]
+  Gate --> Vision[Ollama moondream on Pi]
+  Vision --> Reasoning[LM Studio on MacBook]
+  Reasoning --> Report[Markdown Report]
   Agent --> Store[(SQLite DB)]
   Agent --> Files[Evidence, Reports, Traces]
   Files --> Dashboard
   Store --> Dashboard
 ```
 
-The inspection monitor captures evidence from the webcam, validates it locally, and only sends usable images into the vision and reasoning pipeline. Reports, traces and action items are written to local storage, then surfaced through the dashboard and reporting views.
+The inspection monitor captures evidence from the webcam, validates it locally, and only sends usable images into the model pipeline. Vision currently runs on Pi-local Ollama, while reasoning/report decisions are configured for LM Studio on the MacBook over Tailscale. Reports, traces and action items are written to local storage, then surfaced through the dashboard and reporting views.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system architecture, data flow, data model and trade-offs.
 
@@ -361,7 +362,7 @@ image_too_dark_or_obstructed
 - Add a committed dependency file, for example `requirements.txt` or `pyproject.toml`.
 - Add automated unit tests for image validation, JSON parsing, report writing and dashboard routes.
 - Add authentication for the dashboard before exposing it beyond trusted LAN or Tailscale networks.
-- Add first-class LM Studio support over Tailscale for Scenario B.
+- Replace the temporary `local-model` LM Studio model ID with the exact model ID once `/v1/models` is reachable.
 - Add a real official Cognee ingestion worker if Cognee is installed and configured.
 - Add official Captur, Overmind or Exo integrations when tested SDKs or endpoints are available.
 - Add dashboard screenshots and demo media.
