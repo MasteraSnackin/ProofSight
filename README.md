@@ -295,6 +295,63 @@ No API keys are required for the current local Ollama vision step. LM Studio nor
 
 ## Screenshots or Demo
 
+ProofSight is operated from Telegram in the current Raspberry Pi deployment. The screenshots below show the appliance responding to plain-language inspection requests, capturing fresh webcam evidence, checking whether the image is usable, identifying visible hazards and producing action-oriented inspection text.
+
+### Demo 1: take a picture and check it
+
+User request:
+
+```text
+take picture and check it
+```
+
+ProofSight captured a fresh image from the connected camera, inspected it, and reported that the evidence was only partially suitable because glare, floor threshold visibility and the full access route were limited. It still listed visible evidence such as the glazed door, signage, daylight/glare and surrounding access area, while flagging the evidence-quality limitation for review.
+
+![Telegram screenshot showing ProofSight capturing a fresh image and performing an evidence quality check](docs/assets/proofsight-telegram-capture-check.jpg)
+
+### Demo 2: cable and workstation hazard check
+
+This demo shows ProofSight identifying visible desk/workstation risks from camera evidence:
+
+- desk or table area with screens and electronic devices
+- several black cables across the desk area
+- chair or stool area near a window
+- cable near the chair/floor area
+- strong window glare/backlighting
+- image partly obstructed by a hand or finger
+
+Findings included a possible trip or entanglement hazard from loose cable near the chair/floor area, plus an evidence-quality issue requiring a retake before closing the inspection.
+
+![Telegram screenshot showing ProofSight hazard findings for cables and workstation area](docs/assets/proofsight-telegram-desk-check.jpg)
+
+### Demo 3: take a picture and do the report
+
+User request:
+
+```text
+Take a picture and do the report
+```
+
+ProofSight captured a floor/cable image and generated a short inspection report. The report marked the evidence as usable for a focused floor/cable check, then identified visible medium-risk hazards:
+
+| Risk | Finding | Evidence | Immediate action |
+|---|---|---|---|
+| Medium | Loose cable crossing the floor — trip hazard | Long cable visibly lying across a large section of wooden floor | Move it out of the walking route now, or temporarily cover/secure it |
+| Medium | Cable cluster/items around chair base — possible trip/entanglement hazard | Multiple cables and items/devices visible near chair legs and bags | Clear the chair base area; lift or route cables away from feet/chair movement |
+
+Recommended fix:
+
+- Route cables around the room edge or behind/under furniture.
+- Use cable clips, trunking, cable sleeve, cable tray or a cable mat.
+- Store bags/items away from the chair base.
+- Complete immediate housekeeping today; permanent cable management within 7 days.
+
+Status: open, with human review required.
+
+![Telegram screenshot showing ProofSight generated report with cable hazards, evidence and recommended fixes](docs/assets/proofsight-telegram-report.jpg)
+
+### Local and public demo URLs
+
 Local dashboard URLs in the current Pi deployment:
 
 ```text
@@ -323,8 +380,6 @@ Public landing page:
 ```text
 <ADD VERCEL URL>
 ```
-
-Screenshots are not currently committed. Add dashboard screenshots to a future `docs/` or `assets/` directory if this project is prepared for public submission.
 
 ## API and CLI Reference
 
