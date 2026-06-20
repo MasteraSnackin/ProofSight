@@ -108,7 +108,7 @@ That distinction matters because ProofSight is safety-adjacent. A judge, maintai
 | Sponsor / partner | Does ProofSight really use it today? | Who uses it? | How it is used | Why it belongs in ProofSight |
 |---|---|---|---|---|
 | Captur | Yes, as a local Captur-style evidence trust gate. No official Captur SDK is active yet. | The ProofSight inspection agent uses it before model inference; the human reviewer benefits from knowing bad evidence was rejected. | The runtime checks image file size, resolution, brightness and pixel extrema. Dark, blank, obstructed or suspiciously small images are rejected with reasons such as `image_too_dark_or_obstructed`. | H&S findings are only useful if the evidence is trustworthy. The product should refuse to invent hazards from unusable images. |
-| Cognee | Yes as local memory and Cognee-style artifacts; no official Cognee worker is active yet. | The agent uses SQLite memory during report generation; the dashboard shows memory stats; a future Cognee worker can consume the JSONL queue. | Each inspection is stored in SQLite, compared against previous findings for recurrence, included in report Memory Context, and appended as schema v2 records to `traces/cognee_ingest_queue.jsonl`. | Safety agents need memory of previous hazards, repeated locations, action history and review outcomes. |
+| Cognee | Yes as local memory and Cognee-style artifacts; optional official SDK/API adapter is now present but not enabled by default. | The agent uses SQLite memory during report generation; the dashboard shows memory stats; `cognee_adapter.py` can consume the JSONL queue with the official Cognee SDK/API when installed and configured. | Each inspection is stored in SQLite, compared against previous findings for recurrence, included in report Memory Context, appended as schema v2 records to `traces/cognee_ingest_queue.jsonl`, and can be sent to Cognee via `cognee.remember(...)`. | Safety agents need memory of previous hazards, repeated locations, action history and review outcomes. |
 | Overmind | Partly. ProofSight emits local Overmind-style traces; no official Overmind endpoint is active unless configured. | The maintainer, reviewer or future improvement loop uses the traces to inspect agent behaviour. | Each inspection appends structured trace data to `traces/overmind_traces.jsonl`, including validation results, model outputs, provider errors and review requirements. | Autonomous agents need inspectable reasoning and failure trails, especially when decisions affect safety workflows. |
 | Exo Labs | Not active in the current runtime. ProofSight is designed with an adapter slot for future distributed local inference. | A future deployment operator would use it when the Pi needs help from another trusted local compute node. | Current inference uses Pi-local Ollama for vision and MacBook LM Studio for reasoning. Exo can be wired later through `PROOFSIGHT_EXO_BASE_URL`. | The Pi is excellent as the always-on appliance, but heavier models may need more compute without turning the product into cloud SaaS. |
 | Cosine | Not a runtime integration. It is a development and code-review lane. | The developer or reviewer uses it to improve the implementation, tests and reliability. | Cosine is documented as an engineering-quality partner lane rather than being called by the inspection agent. | Safety-adjacent code needs stronger review discipline, test coverage and implementation quality. |
@@ -126,7 +126,40 @@ ProofSight now uses local memory during the inspection workflow, not only after 
 - exposes memory counts and recurring hazard categories on the dashboard and `/api/status`
 - writes schema v2 Cognee-style records to `traces/cognee_ingest_queue.jsonl`
 
-This means Cognee is represented as a working local memory layer now, with an honest path to official Cognee ingestion later.
+This means Cognee is represented as a working local memory layer now, with an honest optional path to official Cognee SDK/API ingestion.
+
+#### Optional official Cognee SDK/API bridge
+
+ProofSight includes `cognee_adapter.py`, an optional bridge that reads `traces/cognee_ingest_queue.jsonl` and sends memory records to Cognee with the official Python SDK when installed. The adapter intentionally imports Cognee lazily so the core Pi inspection agent still runs when Cognee is absent.
+
+Audit finding: Cognee `main`/PyPI is currently `1.1.3`; upstream `dev` is `1.2.0.dev1` and includes the newer memory API (`remember`, `recall`, `forget`, `improve`). ProofSight supports `remember(...)` when available and falls back to `add(...)` + `cognify(...)` for older SDKs.
+
+Safe dry-run, no Cognee install required:
+
+```bash
+cd /home/dave/hse-pi-agent
+python3 cognee_adapter.py --dry-run --limit 3
+```
+
+Recommended isolated install path if enabling official Cognee locally:
+
+```bash
+cd /home/dave/hse-pi-agent
+uv venv .venv-cognee
+. .venv-cognee/bin/activate
+uv pip install cognee==1.1.3
+python cognee_adapter.py --dry-run --limit 3
+```
+
+Cloud/API mode uses environment variables, not committed secrets:
+
+```bash
+export COGNEE_SERVICE_URL="https://your-instance.cognee.ai"
+export COGNEE_API_KEY="..."
+python cognee_adapter.py --limit 20
+```
+
+Do not paste Cognee API keys into the repo, reports, traces, or chat.
 
 ## Installation
 

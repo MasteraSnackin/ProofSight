@@ -76,6 +76,16 @@ def partner_status(cfg: dict[str, Any]) -> dict[str, Any]:
     db_path = Path(actions.get("db_path", "/home/dave/hse-pi-agent/data/proofsight.db"))
 
     cognee_available = importlib.util.find_spec("cognee") is not None
+    cognee_cfg = _partner_cfg(cfg, "cognee")
+    cognee_status_path = trace_dir / "cognee_ingest_status.json"
+    cognee_status: dict[str, Any] = {}
+    if cognee_status_path.exists():
+        try:
+            cognee_status = json.loads(cognee_status_path.read_text(encoding="utf-8"))
+        except Exception:
+            cognee_status = {"status": "unreadable"}
+    cognee_service_url = bool(os.getenv("COGNEE_SERVICE_URL") or cognee_cfg.get("service_url"))
+    cognee_api_key = bool(os.getenv("COGNEE_API_KEY"))
     exo_endpoint = os.getenv("PROOFSIGHT_EXO_BASE_URL") or _partner_cfg(cfg, "exo").get("base_url")
     captur_command = os.getenv("PROOFSIGHT_CAPTUR_COMMAND") or _partner_cfg(cfg, "captur").get("command")
     overmind_endpoint = os.getenv("PROOFSIGHT_OVERMIND_ENDPOINT") or _partner_cfg(cfg, "overmind").get("endpoint")
@@ -88,12 +98,18 @@ def partner_status(cfg: dict[str, Any]) -> dict[str, Any]:
             "notes": "Local image validation rejects dark/blank/unusable evidence; official Captur SDK/CLI can replace this when available.",
         },
         "cognee": {
-            "mode": "sqlite_plus_ingest_queue",
+            "mode": "official_adapter_ready" if cognee_available else "sqlite_plus_ingest_queue",
             "active": True,
+            "official_sdk_active": bool(cognee_available and (cognee_service_url or cognee_cfg.get("local_sdk_enabled"))),
             "python_package_available": cognee_available,
+            "service_url_configured": cognee_service_url,
+            "api_key_configured": cognee_api_key,
             "canonical_db": str(db_path),
             "ingest_queue": str(trace_dir / "cognee_ingest_queue.jsonl"),
-            "notes": "Structured memory is stored locally now; Cognee ingest queue is emitted for future official Cognee processing.",
+            "ingest_status": str(cognee_status_path),
+            "last_ingest_status": cognee_status.get("status"),
+            "last_records_sent": cognee_status.get("records_sent", 0),
+            "notes": "Local SQLite memory and JSONL queue are always active. cognee_adapter.py can ingest the queue through the official Cognee SDK/API when the package and credentials are configured.",
         },
         "overmind": {
             "mode": "local_trace_jsonl" if not overmind_endpoint else "endpoint_configured",

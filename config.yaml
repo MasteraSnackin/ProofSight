@@ -48,6 +48,13 @@ partners:
   cognee:
     mode: sqlite_plus_ingest_queue
     enabled: true
+    # Optional official Cognee SDK/API bridge. Keep disabled unless Cognee is
+    # installed in an isolated venv and credentials are supplied via env vars.
+    # Required for cloud/API mode: COGNEE_SERVICE_URL and COGNEE_API_KEY.
+    adapter: cognee_adapter.py
+    dataset_name: proofsight_hse
+    local_sdk_enabled: false
+    service_url: null
   overmind:
     mode: local_trace_jsonl
     # Optional future adapter: set endpoint or PROOFSIGHT_OVERMIND_ENDPOINT
