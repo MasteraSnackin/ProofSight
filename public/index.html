@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ProofSight is a local-first Raspberry Pi 5 health and safety inspection agent with webcam evidence, local validation, reports, traces and human review.">
+  <title>ProofSight — Local AI Health & Safety Inspection Agent</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #08111f;
+      --panel: rgba(255,255,255,.075);
+      --panel-strong: rgba(255,255,255,.12);
+      --text: #eef6ff;
+      --muted: #aab8cc;
+      --accent: #5eead4;
+      --accent-2: #93c5fd;
+      --danger: #fda4af;
+      --line: rgba(255,255,255,.16);
+      --shadow: 0 24px 90px rgba(0,0,0,.45);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(94,234,212,.22), transparent 32rem),
+        radial-gradient(circle at top right, rgba(147,197,253,.20), transparent 30rem),
+        linear-gradient(135deg, #07111e 0%, #101827 48%, #050814 100%);
+      color: var(--text);
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    header { padding: 28px 0 12px; }
+    nav { display: flex; justify-content: space-between; align-items: center; gap: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: -.03em; }
+    .mark {
+      width: 42px; height: 42px; border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: grid; place-items: center; color: #06111d; font-weight: 900;
+      box-shadow: 0 10px 30px rgba(94,234,212,.28);
+    }
+    .navlinks { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 14px; }
+    .hero { padding: 72px 0 48px; display: grid; grid-template-columns: 1.05fr .95fr; gap: 38px; align-items: center; }
+    .kicker { color: var(--accent); text-transform: uppercase; letter-spacing: .18em; font-size: 12px; font-weight: 800; }
+    h1 { margin: 12px 0 18px; font-size: clamp(42px, 7vw, 82px); line-height: .92; letter-spacing: -.07em; }
+    .lead { font-size: clamp(18px, 2vw, 22px); line-height: 1.55; color: var(--muted); max-width: 680px; }
+    .buttons { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 28px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 0 18px; border-radius: 999px; font-weight: 750; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
+    .btn.primary { color: #04111f; background: linear-gradient(135deg, var(--accent), var(--accent-2)); border: 0; }
+    .device { background: linear-gradient(180deg, rgba(255,255,255,.12), rgba(255,255,255,.055)); border: 1px solid var(--line); border-radius: 30px; padding: 22px; box-shadow: var(--shadow); }
+    .screen { border-radius: 22px; overflow: hidden; border: 1px solid var(--line); background: #08101d; }
+    .screenbar { height: 44px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #fb7185; }
+    .dot:nth-child(2) { background: #fbbf24; }
+    .dot:nth-child(3) { background: #34d399; }
+    .dash { padding: 18px; display: grid; gap: 14px; }
+    .statgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .stat, .finding { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
+    .stat b { display: block; font-size: 26px; color: var(--accent); }
+    .stat span, .finding p { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+    .finding h3 { margin: 0 0 8px; font-size: 16px; }
+    .pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 5px 9px; background: rgba(94,234,212,.14); color: var(--accent); font-size: 12px; font-weight: 800; }
+    section { padding: 38px 0; }
+    h2 { font-size: clamp(28px, 4vw, 44px); margin: 0 0 18px; letter-spacing: -.045em; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 22px; padding: 22px; }
+    .card h3 { margin: 0 0 10px; }
+    .card p, .note, li { color: var(--muted); line-height: 1.6; }
+    .flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+    .step { background: var(--panel-strong); border: 1px solid var(--line); border-radius: 18px; padding: 16px; min-height: 118px; }
+    .step b { color: var(--accent-2); }
+    .warning { border-color: rgba(253,164,175,.35); background: rgba(253,164,175,.08); }
+    footer { padding: 44px 0 58px; color: var(--muted); border-top: 1px solid var(--line); margin-top: 36px; }
+    @media (max-width: 850px) {
+      .hero, .grid, .flow { grid-template-columns: 1fr; }
+      .statgrid { grid-template-columns: 1fr; }
+      .navlinks { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="wrap">
+    <nav>
+      <div class="brand"><div class="mark">PS</div><span>ProofSight</span></div>
+      <div class="navlinks">
+        <a href="#features">Features</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#safety">Safety</a>
+        <a href="https://github.com/MasteraSnackin/ProofSight">GitHub</a>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <section class="wrap hero">
+      <div>
+        <div class="kicker">Local-first inspection appliance</div>
+        <h1>AI health & safety inspections, running on a Raspberry Pi.</h1>
+        <p class="lead">ProofSight captures webcam evidence, rejects bad images, analyses visible hazards, writes inspection reports, logs traces, and keeps a human in the approval loop — without turning the workplace camera into a cloud dependency.</p>
+        <div class="buttons">
+          <a class="btn primary" href="https://github.com/MasteraSnackin/ProofSight">View source</a>
+          <a class="btn" href="#architecture">See architecture</a>
+        </div>
+      </div>
+
+      <div class="device" aria-label="ProofSight dashboard preview">
+        <div class="screen">
+          <div class="screenbar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>ProofSight dashboard :8787</span></div>
+          <div class="dash">
+            <div class="statgrid">
+              <div class="stat"><b>Pi 5</b><span>camera, storage, dashboard</span></div>
+              <div class="stat"><b>Local</b><span>evidence trust gate</span></div>
+              <div class="stat"><b>Human</b><span>review before approval</span></div>
+            </div>
+            <div class="finding">
+              <span class="pill">sample inspection</span>
+              <h3>Finding: walkway obstruction</h3>
+              <p>Risk-rated action plan generated only after the evidence image passes quality validation.</p>
+            </div>
+            <div class="finding warning">
+              <span class="pill">safety behaviour</span>
+              <h3>Bad evidence is refused</h3>
+              <p>Dark, blank, tiny or obstructed images produce <code>image_rejected</code> / <code>model_error</code>, not made-up findings.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="features" class="wrap">
+      <h2>What it does</h2>
+      <div class="grid">
+        <article class="card"><h3>Captures trusted evidence</h3><p>Uses a webcam on the Pi, validates image quality locally, and stores evidence with reports and traces.</p></article>
+        <article class="card"><h3>Finds visible H&S risks</h3><p>Combines Pi-local vision with LAN/Tailscale-hosted reasoning to draft hazards, risk levels and corrective actions.</p></article>
+        <article class="card"><h3>Shows its working</h3><p>SQLite memory, Markdown reports, JSON traces, audit-pack export and review controls keep decisions inspectable.</p></article>
+      </div>
+    </section>
+
+    <section id="architecture" class="wrap">
+      <h2>Architecture</h2>
+      <div class="flow">
+        <div class="step"><b>1. Camera</b><br>Logitech Brio / V4L2 capture on Raspberry Pi 5.</div>
+        <div class="step"><b>2. Trust gate</b><br>Rejects unusable evidence before model analysis.</div>
+        <div class="step"><b>3. Vision</b><br>Ollama <code>moondream</code> describes visible scene evidence.</div>
+        <div class="step"><b>4. Reasoning</b><br>LM Studio over Tailscale drafts H&S findings and actions.</div>
+        <div class="step"><b>5. Review</b><br>Dashboard, reports, CSV/audit export and human approval.</div>
+      </div>
+      <p class="note">The Vercel deployment is a public project page. The real agent dashboard, camera access, SQLite data and systemd services remain on the Pi.</p>
+    </section>
+
+    <section id="safety" class="wrap">
+      <h2>Built for boring, useful autonomy</h2>
+      <div class="grid">
+        <article class="card"><h3>No blind claims</h3><p>If the image is too dark or the model endpoint is unreachable, ProofSight records the failure instead of fabricating findings.</p></article>
+        <article class="card"><h3>Local-first data</h3><p>Evidence and reports stay on-device by default. The public site does not expose local inspection data.</p></article>
+        <article class="card"><h3>Allowlisted actions</h3><p>The appliance is designed around inspection, reporting and review — not arbitrary shell access from the web.</p></article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <strong>ProofSight</strong> — local AI inspection agent for practical workplace evidence, reports and action plans. Not a replacement for a competent human inspector.
+  </footer>
+</body>
+</html>
