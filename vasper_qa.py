@@ -350,7 +350,141 @@ Rules:
     return parsed
 
 
-def write_report(cfg: dict[str, Any], inspection_id: str, created_at: str, location: str, image: Path, validation: dict[str, Any], vision_text: str, findings: dict[str, Any]) -> Path:
+
+def finding_blob(finding: dict[str, Any]) -> str:
+    """Compact searchable text for one finding/action."""
+    parts = [
+        finding.get("title"),
+        finding.get("hazard"),
+        finding.get("evidence"),
+        finding.get("risk_level"),
+        finding.get("immediate_action"),
+        finding.get("corrective_action"),
+        finding.get("responsible_role"),
+        finding.get("deadline"),
+        finding.get("status"),
+    ]
+    return " ".join(str(x) for x in parts if x).lower()
+
+
+def memory_terms(text: str) -> set[str]:
+    """Extract stable-ish terms for local recurrence matching.
+
+    This is deliberately simple and offline: it gives ProofSight useful memory
+    behaviour now, while the Cognee JSONL stream remains ready for official
+    ingestion later.
+    """
+    stop = {
+        "and", "the", "with", "from", "that", "this", "into", "near", "area",
+        "risk", "hazard", "action", "visible", "possible", "inspection", "image",
+        "evidence", "medium", "low", "high", "open", "review", "required",
+    }
+    words = set(re.findall(r"[a-z][a-z0-9_-]{2,}", text.lower()))
+    return {w for w in words if w not in stop}
+
+
+def hazard_category(finding: dict[str, Any]) -> str:
+    blob = finding_blob(finding)
+    categories = [
+        ("trip_hazard", ["trip", "cable", "walkway", "floor", "obstruction", "trailing"]),
+        ("fire_or_exit_risk", ["fire", "exit", "escape", "blocked", "evacuation"]),
+        ("electrical_hazard", ["electrical", "plug", "socket", "charger", "extension"]),
+        ("housekeeping", ["clutter", "housekeeping", "bag", "items", "stored"]),
+        ("slip_hazard", ["spill", "wet", "slip", "liquid"]),
+        ("ergonomic_or_workstation", ["chair", "desk", "screen", "workstation", "posture"]),
+    ]
+    for name, tokens in categories:
+        if any(t in blob for t in tokens):
+            return name
+    return "general_hse_observation"
+
+
+def build_memory_context(cfg: dict[str, Any], location: str, findings: dict[str, Any], limit: int = 5) -> dict[str, Any]:
+    """Return local Cognee-style memory context from prior inspections.
+
+    SQLite remains the local source of truth. This function gives reports a
+    concrete "similar previous findings" section and creates data that Cognee
+    can later ingest as graph/vector memory.
+    """
+    db = Path(cfg["actions"]["db_path"])
+    current_findings = findings.get("findings") or []
+    query_text = " ".join([location] + [finding_blob(f) for f in current_findings])
+    query_terms = memory_terms(query_text)
+    context: dict[str, Any] = {
+        "memory_layer": "cognee_style_local_recall",
+        "query_terms": sorted(query_terms)[:30],
+        "similar_previous_findings": [],
+        "recurring_issue": False,
+        "suggested_escalation": "No related previous findings found in local memory.",
+    }
+    if not db.exists() or not query_terms:
+        return context
+
+    try:
+        with sqlite3.connect(db) as con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                """
+                SELECT id, created_at, location, status, findings_json, report_path
+                FROM inspections
+                ORDER BY created_at DESC
+                LIMIT 250
+                """
+            ).fetchall()
+    except Exception as exc:
+        context["error"] = f"local memory lookup failed: {exc}"
+        return context
+
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for row in rows:
+        try:
+            prior = json.loads(row["findings_json"] or "{}")
+        except Exception:
+            prior = {}
+        for f in prior.get("findings") or []:
+            prior_text = " ".join([str(row["location"] or ""), finding_blob(f)])
+            prior_terms = memory_terms(prior_text)
+            overlap = query_terms & prior_terms
+            if not overlap:
+                continue
+            score = len(overlap)
+            same_location = (location or "").strip().lower() and (location or "").strip().lower() in (row["location"] or "").strip().lower()
+            if same_location:
+                score += 2
+            scored.append((score, {
+                "inspection_id": row["id"],
+                "created_at": row["created_at"],
+                "location": row["location"],
+                "status": row["status"],
+                "title": f.get("title") or f.get("hazard") or "Untitled finding",
+                "risk_level": f.get("risk_level"),
+                "action_status": f.get("status", "open"),
+                "hazard_category": hazard_category(f),
+                "overlap_terms": sorted(overlap)[:12],
+                "report_path": row["report_path"],
+            }))
+
+    seen: set[tuple[str, str]] = set()
+    similar: list[dict[str, Any]] = []
+    for _score, item in sorted(scored, key=lambda x: x[0], reverse=True):
+        key = (item["inspection_id"], item["title"])
+        if key in seen:
+            continue
+        seen.add(key)
+        similar.append(item)
+        if len(similar) >= limit:
+            break
+
+    context["similar_previous_findings"] = similar
+    context["recurring_issue"] = len(similar) >= 2
+    if similar:
+        context["suggested_escalation"] = (
+            "Related previous findings exist. Check whether earlier actions were closed; "
+            "if repeated, escalate from temporary housekeeping to a permanent control."
+        )
+    return context
+
+def write_report(cfg: dict[str, Any], inspection_id: str, created_at: str, location: str, image: Path, validation: dict[str, Any], vision_text: str, findings: dict[str, Any], memory_context: dict[str, Any] | None = None) -> Path:
     report_path = Path(cfg["actions"]["reports_dir"]) / f"{inspection_id}.md"
     lines = [
         f"# ProofSight Health & Safety Inspection Report",
@@ -401,6 +535,27 @@ def write_report(cfg: dict[str, Any], inspection_id: str, created_at: str, locat
             f"- **Status:** {f.get('status', 'open')}",
             "",
         ]
+    memory_context = memory_context or findings.get("memory_context") or {}
+    if memory_context:
+        lines += [
+            "## Memory Context",
+            "",
+            f"- **Memory layer:** {memory_context.get('memory_layer', 'local')}",
+            f"- **Recurring issue:** {memory_context.get('recurring_issue', False)}",
+            f"- **Suggested escalation:** {memory_context.get('suggested_escalation', '')}",
+            "",
+        ]
+        similar = memory_context.get("similar_previous_findings") or []
+        if similar:
+            lines += ["| Date | Location | Previous finding | Risk | Status |", "|---|---|---|---|---|"]
+            for item in similar[:5]:
+                lines.append(
+                    f"| {item.get('created_at', '')} | {item.get('location', '')} | {item.get('title', '')} | {item.get('risk_level', '')} | {item.get('action_status', item.get('status', ''))} |"
+                )
+            lines.append("")
+        else:
+            lines += ["No similar previous findings were found in local memory.", ""]
+
     lines += [
         "## Review Note",
         "",
@@ -468,7 +623,9 @@ def inspect_once(args: argparse.Namespace) -> int:
         else:
             status = "review_required" if findings.get("findings") else "no_finding"
 
-    report = write_report(cfg, inspection_id, created, location, image, validation, vision_text, findings)
+    memory_context = build_memory_context(cfg, location, findings)
+    findings["memory_context"] = memory_context
+    report = write_report(cfg, inspection_id, created, location, image, validation, vision_text, findings, memory_context)
     trace_obj = {
         "inspection_id": inspection_id,
         "created_at": created,
@@ -478,6 +635,7 @@ def inspect_once(args: argparse.Namespace) -> int:
         "validation": validation,
         "vision_text": vision_text,
         "findings": findings,
+        "memory_context": memory_context,
         "status": status,
     }
     trace_obj["partners"] = write_partner_artifacts(cfg, trace_obj)

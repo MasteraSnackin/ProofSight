@@ -28,6 +28,47 @@ def _actions(cfg: dict[str, Any]) -> dict[str, Any]:
     return cfg.get("actions") or {}
 
 
+
+def _finding_blob(finding: dict[str, Any]) -> str:
+    parts = [finding.get(k) for k in [
+        "title", "hazard", "evidence", "risk_level", "immediate_action",
+        "corrective_action", "responsible_role", "deadline", "status",
+    ]]
+    return " ".join(str(x) for x in parts if x).lower()
+
+
+def _hazard_category(finding: dict[str, Any]) -> str:
+    blob = _finding_blob(finding)
+    categories = [
+        ("trip_hazard", ["trip", "cable", "walkway", "floor", "obstruction", "trailing"]),
+        ("fire_or_exit_risk", ["fire", "exit", "escape", "blocked", "evacuation"]),
+        ("electrical_hazard", ["electrical", "plug", "socket", "charger", "extension"]),
+        ("housekeeping", ["clutter", "housekeeping", "bag", "items", "stored"]),
+        ("slip_hazard", ["spill", "wet", "slip", "liquid"]),
+        ("ergonomic_or_workstation", ["chair", "desk", "screen", "workstation", "posture"]),
+    ]
+    for name, tokens in categories:
+        if any(t in blob for t in tokens):
+            return name
+    return "general_hse_observation"
+
+
+def _cognee_finding(finding: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "title": finding.get("title"),
+        "hazard": finding.get("hazard"),
+        "hazard_category": _hazard_category(finding),
+        "risk_level": finding.get("risk_level"),
+        "severity": finding.get("severity"),
+        "likelihood": finding.get("likelihood"),
+        "responsible_role": finding.get("responsible_role"),
+        "deadline": finding.get("deadline"),
+        "action_status": finding.get("status", "open"),
+        "immediate_action": finding.get("immediate_action"),
+        "corrective_action": finding.get("corrective_action"),
+        "review_required": finding.get("review_required", True),
+    }
+
 def partner_status(cfg: dict[str, Any]) -> dict[str, Any]:
     """Return a machine-readable status for all sponsor integrations."""
     actions = _actions(cfg)
@@ -86,16 +127,33 @@ def write_partner_artifacts(cfg: dict[str, Any], inspection_record: dict[str, An
 
     statuses = partner_status(cfg)
 
+    findings_obj = inspection_record.get("findings") or {}
+    raw_findings = findings_obj.get("findings") or []
+    memory_context = inspection_record.get("memory_context") or findings_obj.get("memory_context") or {}
     cognee_record = {
         "type": "proofsight_inspection_memory",
+        "schema_version": 2,
         "inspection_id": inspection_record.get("inspection_id"),
         "created_at": inspection_record.get("created_at"),
         "location": inspection_record.get("location"),
         "status": inspection_record.get("status"),
         "image": inspection_record.get("image"),
         "validation": inspection_record.get("validation"),
-        "summary": (inspection_record.get("findings") or {}).get("summary"),
-        "findings": (inspection_record.get("findings") or {}).get("findings") or [],
+        "summary": findings_obj.get("summary"),
+        "hazard_categories": sorted({_hazard_category(f) for f in raw_findings}),
+        "findings": [_cognee_finding(f) for f in raw_findings],
+        "review": {
+            "human_review_required": True,
+            "status": "pending" if raw_findings else "not_required_or_no_finding",
+        },
+        "memory_context": memory_context,
+        "graph_edges": [
+            {"from": inspection_record.get("inspection_id"), "type": "AT_LOCATION", "to": inspection_record.get("location")},
+            *[
+                {"from": inspection_record.get("inspection_id"), "type": "HAS_HAZARD_CATEGORY", "to": _hazard_category(f)}
+                for f in raw_findings
+            ],
+        ],
     }
     cognee_queue = Path(statuses["cognee"]["ingest_queue"])
     with cognee_queue.open("a", encoding="utf-8") as f:
@@ -106,8 +164,9 @@ def write_partner_artifacts(cfg: dict[str, Any], inspection_record: dict[str, An
         "inspection_id": inspection_record.get("inspection_id"),
         "created_at": inspection_record.get("created_at"),
         "status": inspection_record.get("status"),
-        "failure_pattern_candidate": inspection_record.get("status") in {"image_rejected", "no_finding"},
+        "failure_pattern_candidate": inspection_record.get("status") in {"image_rejected", "no_finding", "model_error"},
         "validation_reason": (inspection_record.get("validation") or {}).get("reason"),
+        "memory_context": memory_context,
         "model_outputs": {
             "vision_text": inspection_record.get("vision_text"),
             "findings": inspection_record.get("findings"),

@@ -223,8 +223,79 @@ def reporting_dataset(limit: int = 500) -> dict:
         "top_locations": location_counts.most_common(12),
         "inspections": inspections,
         "actions": acts,
+        "memory": memory_summary(inspections, acts),
     }
 
+
+
+def finding_blob(finding: dict) -> str:
+    parts = [finding.get(k) for k in [
+        "title", "hazard", "evidence", "risk_level", "immediate_action", "corrective_action", "status",
+    ]]
+    return " ".join(str(x) for x in parts if x).lower()
+
+
+def hazard_category(finding: dict) -> str:
+    blob = finding_blob(finding)
+    categories = [
+        ("trip_hazard", ["trip", "cable", "walkway", "floor", "obstruction", "trailing"]),
+        ("fire_or_exit_risk", ["fire", "exit", "escape", "blocked", "evacuation"]),
+        ("electrical_hazard", ["electrical", "plug", "socket", "charger", "extension"]),
+        ("housekeeping", ["clutter", "housekeeping", "bag", "items", "stored"]),
+        ("slip_hazard", ["spill", "wet", "slip", "liquid"]),
+        ("ergonomic_or_workstation", ["chair", "desk", "screen", "workstation", "posture"]),
+    ]
+    for name, tokens in categories:
+        if any(t in blob for t in tokens):
+            return name
+    return "general_hse_observation"
+
+
+def jsonl_line_count(path: Path) -> int:
+    try:
+        if not path.exists():
+            return 0
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            return sum(1 for line in f if line.strip())
+    except Exception:
+        return 0
+
+
+def memory_summary(inspections: list[dict] | None = None, acts: list[dict] | None = None) -> dict:
+    inspections = inspections if inspections is not None else latest_inspections(500)
+    acts = acts if acts is not None else actions(500)
+    cfg = load_config()
+    trace_dir = Path(cfg["actions"]["trace_dir"])
+    category_counts: Counter[str] = Counter()
+    recurring_locations: Counter[str] = Counter()
+    memory_context_hits = 0
+    for i in inspections:
+        findings = i.get("findings_json") or {}
+        if not isinstance(findings, dict):
+            continue
+        if (findings.get("memory_context") or {}).get("similar_previous_findings"):
+            memory_context_hits += 1
+        for f in findings.get("findings") or []:
+            category_counts[hazard_category(f)] += 1
+            if i.get("location"):
+                recurring_locations[i.get("location")] += 1
+    open_recurring_actions = 0
+    for a in acts:
+        status = (a.get("status") or "open").lower()
+        details = a.get("details_json") or {}
+        if status in {"open", "in_progress"} and isinstance(details, dict):
+            if category_counts.get(hazard_category(details), 0) > 1:
+                open_recurring_actions += 1
+    return {
+        "memory_layer": "sqlite_plus_cognee_style_jsonl",
+        "remembered_inspections": len(inspections),
+        "cognee_queue_records": jsonl_line_count(trace_dir / "cognee_ingest_queue.jsonl"),
+        "overmind_trace_records": jsonl_line_count(trace_dir / "overmind_traces.jsonl"),
+        "top_hazard_categories": category_counts.most_common(8),
+        "top_locations": recurring_locations.most_common(8),
+        "memory_context_hits": memory_context_hits,
+        "open_recurring_actions": open_recurring_actions,
+    }
 
 def csv_cell(value) -> str:
     s = "" if value is None else str(value)
@@ -255,6 +326,9 @@ def render_reports_dashboard() -> str:
     status_bars = "".join(bar(k, v, max_status) for k, v in sorted(data["status_counts"].items()))
     review_bars = "".join(bar(k, v, max(data["review_counts"].values() or [1])) for k, v in sorted(data["review_counts"].items()))
     loc_bars = "".join(bar(k, v, max_loc) for k, v in data["top_locations"])
+    memory = data.get("memory") or {}
+    max_haz = max([v for _, v in memory.get("top_hazard_categories", [])] or [1])
+    memory_bars = "".join(bar(k, v, max_haz) for k, v in memory.get("top_hazard_categories", [])) or '<p class=muted>No hazard memory yet.</p>'
     rows = []
     for i in data["inspections"][:120]:
         findings = i.get("findings_json") or {}
@@ -275,7 +349,8 @@ def render_reports_dashboard() -> str:
 body{{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;background:#071018;color:#e9f4ff}} a{{color:#67e8f9;text-decoration:none}} header{{padding:22px;background:#0e1b26;border-bottom:1px solid #1d3b52}} .wrap{{max-width:1500px;margin:auto;padding:18px}} .grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}} .panel{{background:#0e1b26;border:1px solid #1d3b52;border-radius:16px;padding:16px;margin-bottom:18px}} .metric{{background:#122435;border:1px solid #1d3b52;border-radius:14px;padding:14px}} .metric b{{font-size:30px}} .muted{{color:#8aa7bb;font-size:13px}} .badge{{display:inline-block;padding:4px 8px;border-radius:999px;background:#334155;color:#e2e8f0;font-size:12px}} .badge.good{{background:rgba(34,197,94,.18);color:#86efac;border:1px solid rgba(34,197,94,.35)}} .badge.bad{{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.35)}} table{{width:100%;border-collapse:collapse}} td,th{{padding:8px;border-bottom:1px solid #1d3b52;text-align:left;vertical-align:top}} .barrow{{display:grid;grid-template-columns:1fr 42px 2fr;gap:10px;align-items:center;margin:8px 0}} .bar{{height:10px;background:#172a3a;border-radius:999px;overflow:hidden}} .bar i{{display:block;height:100%;background:#67e8f9}} .nav{{display:flex;gap:16px;margin-top:8px}} @media(max-width:900px){{.grid{{grid-template-columns:1fr}}.barrow{{grid-template-columns:1fr}}}}
 </style></head><body><header><h1>ProofSight Reporting Dashboard</h1><div class=muted>Evidence quality, inspection status, review progress, and downloadable report data.</div><div class=nav><a href="/">Operations dashboard</a><a href="/api/reports">Reports API</a><a href="/reports.csv">Download CSV</a></div></header><div class=wrap>
 <section class=grid><div class=metric><div class=muted>Total inspections</div><b>{data['total_inspections']}</b></div><div class=metric><div class=muted>Valid images</div><b>{data['valid_images']}</b></div><div class=metric><div class=muted>Rejected images</div><b>{data['rejected_images']}</b></div><div class=metric><div class=muted>Open actions</div><b>{data['open_actions']}</b></div></section>
-<section class=grid style="margin-top:18px"><div class=panel><h2>Status breakdown</h2>{status_bars}</div><div class=panel><h2>Review state</h2>{review_bars}</div><div class=panel><h2>Top locations</h2>{loc_bars}</div><div class=panel><h2>Exports</h2><p><a href="/reports.csv">Download inspection CSV</a></p><p><a href="/api/reports">Open JSON report API</a></p><p class=muted>Each row links to an audit ZIP containing evidence, report, trace and manifest.</p></div></section>
+<section class=grid style="margin-top:18px"><div class=panel><h2>Status breakdown</h2>{status_bars}</div><div class=panel><h2>Review state</h2>{review_bars}</div><div class=panel><h2>Top locations</h2>{loc_bars}</div><div class=panel><h2>Memory</h2><p><b>{memory.get('remembered_inspections',0)}</b> inspections remembered</p><p><b>{memory.get('cognee_queue_records',0)}</b> Cognee-style records queued</p><p><b>{memory.get('open_recurring_actions',0)}</b> open recurring actions</p>{memory_bars}</div></section>
+<section class=panel><h2>Exports</h2><p><a href="/reports.csv">Download inspection CSV</a> · <a href="/api/reports">Open JSON report API</a></p><p class=muted>Each row links to an audit ZIP containing evidence, report, trace and manifest.</p></section>
 <section class=panel><h2>Inspection report register</h2><table><thead><tr><th>ID/date</th><th>Location</th><th>Status</th><th>Evidence</th><th>Review</th><th>Findings</th><th>Links</th></tr></thead><tbody>{''.join(rows)}</tbody></table></section>
 </div></body></html>"""
 
@@ -324,6 +399,7 @@ def render_index(message: str = "") -> str:
     stats = dashboard_stats(inspections, acts)
     cam = camera_health(latest)
     partners = partner_status(cfg)
+    memory = memory_summary(inspections, acts)
     latest_report = Path(latest["report_path"]) if latest and latest.get("report_path") else None
     latest_report_text = read_text(latest_report) if latest_report and latest_report.exists() else "No reports yet."
     proof_state = service_state("proofsight.service")
@@ -383,17 +459,19 @@ def render_index(message: str = "") -> str:
         """)
 
     partner_rows = "".join(f"<tr><td>{html.escape(k)}</td><td>{badge(v.get('mode'), bool(v.get('active')))}</td><td>{html.escape(v.get('notes',''))}</td></tr>" for k, v in partners.items())
+    memory_rows = "".join(f"<tr><td>{html.escape(k)}</td><td>{v}</td></tr>" for k, v in memory.get("top_hazard_categories", [])) or '<tr><td colspan=2 class=muted>No hazard memory yet.</td></tr>'
 
     return f"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><meta http-equiv=refresh content=30><title>ProofSight Dashboard v2</title>
 <style>
 :root{{--bg:#071018;--panel:#0e1b26;--text:#e9f4ff;--muted:#8aa7bb;--accent:#67e8f9;--good:#22c55e;--bad:#ef4444;--warn:#f59e0b}}
 *{{box-sizing:border-box}} body{{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif;background:radial-gradient(circle at top left,#143853,#071018 45%);color:var(--text)}} a{{color:var(--accent);text-decoration:none}} header{{padding:22px;border-bottom:1px solid #183348;background:rgba(7,16,24,.9);position:sticky;top:0;z-index:3;backdrop-filter:blur(8px)}} h1{{margin:0;font-size:30px}} h2{{margin:0 0 12px;font-size:18px}} .sub,.muted{{color:var(--muted)}} .wrap{{max-width:1500px;margin:0 auto;padding:18px}} .grid{{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}} .panel{{background:linear-gradient(180deg,rgba(18,36,53,.97),rgba(14,27,38,.97));border:1px solid #1d3b52;border-radius:18px;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,.25)}} .status-grid,.metric-grid{{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:14px}} .status,.metric{{background:rgba(0,0,0,.18);border:1px solid #1d3b52;border-radius:14px;padding:11px}} .metric b{{font-size:24px}} .badge{{display:inline-block;padding:4px 8px;border-radius:999px;background:#334155;color:#e2e8f0;font-size:12px;margin:2px}} .badge.good{{background:rgba(34,197,94,.18);color:#86efac;border:1px solid rgba(34,197,94,.35)}} .badge.bad{{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.35)}} .row{{display:flex;gap:10px;align-items:center;flex-wrap:wrap}} .between{{justify-content:space-between}} .latest-img{{width:100%;max-height:430px;object-fit:contain;background:#020617;border-radius:14px;border:1px solid #1d3b52}} .inspection{{padding:12px;border:1px solid #1d3b52;border-radius:14px;margin-bottom:10px;background:rgba(0,0,0,.16)}} .links{{display:flex;gap:12px;margin-top:8px;font-size:13px;flex-wrap:wrap}} .report{{white-space:pre-wrap;max-height:520px;overflow:auto;background:#020617;border:1px solid #1d3b52;color:#dbeafe;border-radius:14px;padding:14px;font-size:13px;line-height:1.45}} table{{width:100%;border-collapse:collapse}} td,th{{padding:8px;border-bottom:1px solid #1d3b52;text-align:left;vertical-align:top}} button{{background:var(--accent);color:#06202a;border:0;border-radius:12px;padding:9px 12px;font-weight:700;cursor:pointer}} button.secondary{{background:#1f3b50;color:#dff7ff;border:1px solid #2c536b}} button.danger{{background:rgba(239,68,68,.85);color:white}} input{{background:#020617;color:var(--text);border:1px solid #1d3b52;border-radius:10px;padding:10px;min-width:250px}} .nav{{display:flex;gap:16px;margin-top:8px;flex-wrap:wrap}} .notice{{margin:12px 0;padding:12px;border-radius:12px;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.35);color:#fde68a}} .empty{{padding:24px;text-align:center;color:var(--muted);border:1px dashed #1d3b52;border-radius:14px}} form.inline{{display:inline}} .mini{{margin-top:8px}} .actions{{min-width:260px}} @media(max-width:950px){{.grid,.status-grid,.metric-grid{{grid-template-columns:1fr}}header{{position:static}}}}
 </style></head><body>
-<header><h1>ProofSight Dashboard v2</h1><div class=sub>Local trusted HSE inspection agent · Scenario A Pi-only Ollama · evidence → report → action plan → review</div><div class=nav><a href="/reports">Reporting dashboard</a><a href="/reports.csv">CSV export</a><a href="/api/status">Status API</a></div><div class=status-grid><div class=status><div class=muted>Agent</div>{badge(proof_state, proof_state=='active')}</div><div class=status><div class=muted>Dashboard</div>{badge(dash_state, dash_state=='active')}</div><div class=status><div class=muted>Ollama</div>{badge(ollama_state, ollama_state=='active')}</div><div class=status><div class=muted>Camera</div>{badge(cam['state'], cam['good'])}<br><span class=muted>{html.escape(str(cam.get('reason')))} · brightness {html.escape(str(cam.get('brightness')))}</span></div><div class=status><div class=muted>Model mode</div>{badge(cfg.get('models',{}).get('scenario','unknown'), True)}</div></div></header>
+<header><h1>ProofSight Dashboard v2</h1><div class=sub>Telegram-operated local trusted HSE inspection agent · Pi camera/Ollama vision · LM Studio reasoning · evidence → memory → report → action plan → review</div><div class=nav><a href="/reports">Reporting dashboard</a><a href="/reports.csv">CSV export</a><a href="/api/status">Status API</a></div><div class=status-grid><div class=status><div class=muted>Agent</div>{badge(proof_state, proof_state=='active')}</div><div class=status><div class=muted>Dashboard</div>{badge(dash_state, dash_state=='active')}</div><div class=status><div class=muted>Ollama</div>{badge(ollama_state, ollama_state=='active')}</div><div class=status><div class=muted>Camera</div>{badge(cam['state'], cam['good'])}<br><span class=muted>{html.escape(str(cam.get('reason')))} · brightness {html.escape(str(cam.get('brightness')))}</span></div><div class=status><div class=muted>Model mode</div>{badge(cfg.get('models',{}).get('scenario','unknown'), True)}</div></div></header>
 <div class=wrap>{f'<div class=notice>{html.escape(message)}</div>' if message else ''}
 <section class=panel><h2>Risk / operations summary</h2><div class=metric-grid><div class=metric><div class=muted>Valid images</div><b>{stats['valid_images']}</b></div><div class=metric><div class=muted>Rejected images</div><b>{stats['rejected_images']}</b></div><div class=metric><div class=muted>Needs review</div><b>{stats['review_needed']}</b></div><div class=metric><div class=muted>Open actions</div><b>{stats['open_actions']}</b></div><div class=metric><div class=muted>High risk actions</div><b>{stats['high_actions']}</b></div></div></section>
 <div class=grid style="margin-top:18px"><section class=panel><h2>Latest evidence + controls</h2>{latest_img_html}<form method=post action=/run class=row style="margin-top:14px"><input name=location placeholder=Location value="Dashboard quick scan"><button type=submit>Run quick scan</button><button class=secondary name=force value=1 type=submit>Force analyse</button><a href=/api/status>API status</a></form><p class=muted>Trusted evidence gate rejects dark/blank frames instead of inventing hazards.</p></section><section class=panel><h2>Latest report</h2>{render_report(latest_report_text)}</section></div>
 <div class=grid style="margin-top:18px"><section class=panel><h2>Action plan board</h2>{'<table><thead><tr><th>Action</th><th>Risk</th><th>Owner/deadline</th><th>Status</th><th>Controls</th></tr></thead><tbody>'+''.join(action_rows)+'</tbody></table>' if action_rows else '<div class=empty>No action items yet. When ProofSight finds a hazard, it will appear here.</div>'}</section><section class=panel><h2>Recent inspections + human review</h2>{''.join(inspection_cards) if inspection_cards else '<div class=empty>No inspections yet.</div>'}</section></div>
+<section class=panel style="margin-top:18px"><h2>Memory / Cognee-style recall</h2><div class=metric-grid><div class=metric><div class=muted>Remembered inspections</div><b>{memory.get('remembered_inspections',0)}</b></div><div class=metric><div class=muted>Cognee queue records</div><b>{memory.get('cognee_queue_records',0)}</b></div><div class=metric><div class=muted>Overmind trace records</div><b>{memory.get('overmind_trace_records',0)}</b></div><div class=metric><div class=muted>Memory context hits</div><b>{memory.get('memory_context_hits',0)}</b></div><div class=metric><div class=muted>Open recurring actions</div><b>{memory.get('open_recurring_actions',0)}</b></div></div><table style="margin-top:12px"><thead><tr><th>Hazard category</th><th>Count</th></tr></thead><tbody>{memory_rows}</tbody></table></section>
 <section class=panel style="margin-top:18px"><h2>Partner / sponsor adapters</h2><table><thead><tr><th>Partner</th><th>Mode</th><th>Notes</th></tr></thead><tbody>{partner_rows}</tbody></table></section>
 </div></body></html>"""
 
@@ -450,6 +528,7 @@ class Handler(BaseHTTPRequestHandler):
                 "stats": dashboard_stats(latest_inspections(100), actions(200)),
                 "actions": actions(50),
                 "partners": partner_status(cfg),
+                "memory": memory_summary(latest_inspections(100), actions(200)),
                 "latest": latest_inspections(10),
             }
             self.send_text(json.dumps(payload, indent=2, ensure_ascii=False), "application/json; charset=utf-8")
