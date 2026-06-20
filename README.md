@@ -6,7 +6,9 @@ Local-first AI health and safety inspection agent for Raspberry Pi 5.
 
 ProofSight is a Raspberry Pi 5 inspection appliance that captures workplace evidence from a webcam, checks whether the image is usable, analyses visible health and safety risks, and produces inspection reports, traces, action items and dashboard views.
 
-The current deployment keeps camera capture, image validation, evidence storage, reports, traces, dashboard and Pi-local `moondream` vision on the Raspberry Pi. HSE reasoning and report decisions are configured to use LM Studio on a MacBook over Tailscale. If LM Studio is unreachable, ProofSight records `model_error` rather than inventing findings.
+ProofSight now works directly from Telegram in the current deployment. A user can send plain-language requests such as `take picture and check it` or `Take a picture and do the report`; the Pi captures a fresh webcam image, runs the evidence trust check, analyses visible hazards, and returns inspection findings or a short report back in the chat.
+
+The current deployment keeps camera capture, image validation, evidence storage, reports, traces, dashboard, Telegram operation and Pi-local `moondream` vision on the Raspberry Pi. HSE reasoning and report decisions are configured to use LM Studio on a MacBook over Tailscale. If LM Studio is unreachable, ProofSight records `model_error` rather than inventing findings.
 
 ProofSight is an inspection assistant, not a replacement for a competent human inspector. Reports are draft outputs and should be reviewed before formal compliance, legal or enforcement use.
 
@@ -29,6 +31,7 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 
 ## Features
 
+- Telegram-first operation for live inspection requests from chat.
 - Webcam evidence capture through V4L2 and `ffmpeg`.
 - Local image trust gate that rejects dark, blank, obstructed or suspiciously small evidence.
 - Pi-local vision description through Ollama `moondream`.
@@ -62,6 +65,7 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 | Reasoning/report model | `local-model` placeholder until LM Studio exposes the exact model ID |
 | Storage | SQLite and local files |
 | Dashboard | Python standard library `ThreadingHTTPServer` |
+| Chat operation | Telegram via Hermes/gateway routing to the Pi runtime |
 | Service manager | systemd user services |
 | Public landing page | Static HTML in `public/index.html`, Vercel config in `vercel.json` |
 | Node tooling | Node.js 22.22.3, npm 10.9.8 for the static Vercel build script |
@@ -70,7 +74,9 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 
 ```mermaid
 flowchart LR
-  Operator[Operator] --> Dashboard[ProofSight Dashboard :8787]
+  Operator[Operator] --> Telegram[Telegram Chat]
+  Operator --> Dashboard[ProofSight Dashboard :8787]
+  Telegram --> Agent[ProofSight CLI / Monitor]
   Dashboard --> Agent[ProofSight CLI / Monitor]
   Agent --> Camera[Webcam /dev/video0]
   Agent --> Gate[Local Image Trust Gate]
@@ -167,6 +173,29 @@ moondream
 The reasoning/report model is served by LM Studio on the MacBook. Replace `local-model` in `config.yaml` with the exact model ID returned by `http://<MACBOOK_TAILSCALE_IP>:1234/v1/models` once LM Studio is reachable.
 
 ## Usage
+
+### Telegram operation
+
+ProofSight now works directly from Telegram in the current deployment. The operator can ask for inspections in plain English and receive the result back in the same chat.
+
+Example Telegram requests:
+
+```text
+take picture and check it
+Take a picture and do the report
+check the webcam for hazards
+```
+
+What happens behind the scenes:
+
+1. Telegram message reaches the Pi through the Hermes/gateway routing layer.
+2. ProofSight captures a fresh webcam image or uses the supplied evidence image.
+3. The image trust gate checks whether the evidence is usable.
+4. Valid evidence is analysed for visible health and safety hazards.
+5. ProofSight replies with findings, evidence limitations, recommended actions or a short inspection report.
+6. Evidence, reports, traces and memory records are still stored locally on the Pi.
+
+### CLI operation
 
 Run one inspection:
 
