@@ -186,21 +186,23 @@ Routes:
 
 ### Partner Adapter Layer
 
-- **Responsibilities:** Keep sponsor-aligned integration claims explicit and machine-readable.
-- **Main technologies:** Python, JSONL files, optional environment variables.
-- **Data owned or transformed:** Partner status object, Cognee-style memory records, Overmind-style trace records.
-- **External dependencies:** None required for the current local placeholder mode.
-- **Failure modes or operational concerns:** Official SDK/API integrations are not active unless explicitly configured and tested.
+- **Responsibilities:** Make sponsor usage explicit, produce machine-readable hand-off artifacts, and avoid overstating unverified third-party integrations.
+- **Main technologies:** Python, JSONL files, SQLite, optional environment variables.
+- **Data owned or transformed:** Partner status object, Cognee-style memory records, Overmind-style trace records, Captur-style validation metadata and future endpoint configuration.
+- **External dependencies:** None required for the current local adapter mode. Official integrations become dependencies only when configured and tested.
+- **Failure modes or operational concerns:** Sponsor APIs or SDKs may be unavailable on Raspberry Pi, require credentials, or add network dependencies. ProofSight therefore keeps the inspection loop local and treats external integrations as replaceable adapters.
 
-Current partner status:
+Partner usage and rationale:
 
-| Partner | Current implementation |
-|---|---|
-| Captur | Local image trust gate |
-| Cognee | SQLite canonical memory plus JSONL ingest queue |
-| Overmind | Local JSONL trace stream |
-| Exo Labs | Configured slot only; local Ollama is active |
-| Cosine | Engineering metadata only; not a runtime dependency |
+| Partner | Architecture role | How ProofSight uses it | Why this role was chosen | Current state |
+|---|---|---|---|---|
+| Captur | Evidence trust boundary | The local trust gate measures file size, resolution, brightness and pixel extrema before inference. Bad evidence is rejected with reasons such as `image_too_dark_or_obstructed`. | HSE inspection depends on reliable evidence. A finding generated from a dark or obstructed frame is worse than no finding. Captur aligns with proof-quality capture and evidence validation. | Implemented locally. Optional official command hook: `PROOFSIGHT_CAPTUR_COMMAND`. |
+| Cognee | Long-term inspection memory | SQLite stores canonical inspections and action items. Each inspection also emits a Cognee-style JSONL memory record containing status, location, validation, summary and findings. | A useful safety agent should recognise repeated hazards, recurring locations and historical actions. Cognee fits the structured memory layer without forcing the Pi to abandon local storage. | Local DB active. Ingest queue active at `traces/cognee_ingest_queue.jsonl`. |
+| Overmind | Traceability and improvement loop | ProofSight emits structured traces of validation outcomes, model outputs, provider failures and human-review requirements. | Autonomous agents need audit trails. Overmind fits the role of understanding failure patterns and improving future runs from traces rather than opaque logs. | Local JSONL stream active at `traces/overmind_traces.jsonl`. Optional endpoint hook: `PROOFSIGHT_OVERMIND_ENDPOINT`. |
+| Exo Labs | Distributed local inference | The model boundary is designed so the Pi can keep capture/storage while another trusted node handles heavier model calls. | The Pi 5 is ideal for always-on edge control, but larger models are slow on-device. Exo fits the path towards local distributed compute while preserving a self-contained appliance model. | Not active yet. Current inference uses Pi-local Ollama plus MacBook LM Studio. Future endpoint hook: `PROOFSIGHT_EXO_BASE_URL`. |
+| Cosine | Engineering quality lane | Cosine is treated as a development and review partner for improving code quality, tests and implementation reliability. | A safety-adjacent agent needs careful engineering. Cosine belongs in the build/review process rather than the runtime inspection path. | Not a runtime dependency. Tracked as engineering metadata and future review workflow. |
+
+The design choice is intentional: sponsor integrations sit at natural system boundaries. Captur protects the input, Cognee remembers inspections, Overmind explains behaviour, Exo can expand local compute, and Cosine improves the implementation. This avoids a brittle demo where every sponsor is called from the critical path whether or not it belongs there.
 
 ### Public Landing Page
 

@@ -91,17 +91,19 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system architecture, data 
 
 ## Sponsor and Partner Integration Status
 
-ProofSight includes sponsor-aligned integration points, but it does not overclaim active third-party SDK usage. The current implementation keeps the core inspection workflow local and exposes clear adapter slots for official integrations when those services are available and tested.
+ProofSight uses the hackathon sponsors as product architecture layers rather than as decorative logos. The goal is to show where each sponsor fits in a real local-first inspection appliance: trusted evidence, memory, traces, distributed inference and engineering quality.
 
-| Sponsor / partner | Current status | How ProofSight uses or aligns with it |
-|---|---|---|
-| Captur | Local equivalent implemented | The image trust gate validates evidence quality before inference, rejecting dark, blank, obstructed or suspiciously small images instead of generating unsafe findings. An official Captur CLI or SDK can be connected through `PROOFSIGHT_CAPTUR_COMMAND`. |
-| Cognee | Adapter-ready local memory stream | SQLite is the canonical local inspection memory. Each inspection also appends a Cognee-style record to `traces/cognee_ingest_queue.jsonl` for future official Cognee ingestion. |
-| Overmind | Adapter-ready local trace stream | Each inspection appends a structured trace to `traces/overmind_traces.jsonl`, making failures, model outputs and review requirements inspectable for later improvement analysis. |
-| Exo Labs | Placeholder for distributed inference | Pi-local Ollama is active today. Exo is represented as a configurable endpoint slot through `PROOFSIGHT_EXO_BASE_URL` and should only be enabled when a real Exo endpoint or cluster is running. |
-| Cosine | Engineering and review lane only | Cosine is not a runtime dependency. It is treated as a coding/review partner lane for improving implementation quality rather than part of the deployed inspection pipeline. |
+The current repository is deliberately honest about what is implemented today versus what is adapter-ready. Local equivalents and JSONL hand-off streams are included now; official SDK/API integrations should only be enabled after they are installed, configured and tested on the target Raspberry Pi setup.
 
-This section is deliberately conservative: local placeholders and adapter-ready streams are documented separately from verified official integrations.
+| Sponsor / partner | How ProofSight uses it | Why it matters for this product | Current implementation |
+|---|---|---|---|
+| Captur | Evidence trust and capture quality layer. ProofSight validates each webcam image before inference and refuses dark, blank, obstructed or suspiciously small evidence. | Health and safety findings are only useful if the underlying evidence is trustworthy. Captur maps naturally to the problem of proving that an inspection image is usable before an AI system comments on it. | Implemented as the local image trust gate. Future official integration can be connected through `PROOFSIGHT_CAPTUR_COMMAND`. |
+| Cognee | Inspection memory layer. ProofSight stores canonical inspection records in SQLite and also writes Cognee-style memory records for each inspection. | A safety agent needs memory: previous findings, repeated hazards, locations, action history and review outcomes. Cognee fits as the structured long-term memory layer once official ingestion is enabled. | SQLite is active now. Adapter stream is written to `traces/cognee_ingest_queue.jsonl`. |
+| Overmind | Agent trace and improvement layer. ProofSight records structured traces showing evidence validation, model outputs, provider errors and human-review requirements. | For an autonomous inspection agent, the important question is not just what it decided, but why it decided it. Overmind fits the debugging, observability and failure-pattern analysis role. | Local trace stream is active now at `traces/overmind_traces.jsonl`. Optional endpoint support can be added through `PROOFSIGHT_OVERMIND_ENDPOINT`. |
+| Exo Labs | Distributed/off-device inference layer. ProofSight is designed so Pi-local capture can hand heavier reasoning to another trusted machine or cluster. | A Raspberry Pi is excellent at being the always-on appliance, but heavier models may need more compute. Exo fits the future path for local distributed inference without moving the whole product to a cloud SaaS architecture. | Pi-local Ollama and MacBook LM Studio are active today. Exo is an adapter slot through `PROOFSIGHT_EXO_BASE_URL`, not an active dependency yet. |
+| Cosine | Engineering quality and review layer. ProofSight treats Cosine as a coding/review partner rather than a runtime component. | The project is safety-adjacent, so code quality, review discipline and implementation reliability matter. Cosine fits the build-quality lane: reviewing code, improving tests and hardening the agent. | Not a runtime dependency. Documented as an engineering lane for future code review and implementation-quality work. |
+
+This split keeps the README judge-friendly without exaggerating. ProofSight demonstrates sponsor fit through clear system boundaries and generated artifacts, while avoiding claims that untested official integrations are already live.
 
 ## Installation
 
