@@ -15,6 +15,7 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 - [Features](#features)
 - [Tech Stack](#tech-stack)
 - [Architecture Overview](#architecture-overview)
+- [Sponsor and Partner Integration Status](#sponsor-and-partner-integration-status)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Configuration](#configuration)
@@ -57,7 +58,7 @@ ProofSight is an inspection assistant, not a replacement for a competent human i
 | Image validation | Pillow |
 | Local vision server | Ollama at `http://127.0.0.1:11434` |
 | Vision model | `moondream` |
-| Reasoning server | LM Studio at `http://100.106.72.5:1234/v1` over Tailscale |
+| Reasoning server | LM Studio at `http://<MACBOOK_TAILSCALE_IP>:1234/v1` over Tailscale |
 | Reasoning/report model | `local-model` placeholder until LM Studio exposes the exact model ID |
 | Storage | SQLite and local files |
 | Dashboard | Python standard library `ThreadingHTTPServer` |
@@ -87,6 +88,20 @@ flowchart LR
 The inspection appliance runs on the Raspberry Pi. It captures evidence, validates the image locally, sends only usable evidence into the model pipeline, stores reports and traces on disk, and exposes local dashboard views. The Vercel site is only a public project page; it does not expose the Pi camera, SQLite database or local dashboard controls.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full system architecture, data flow, data model and trade-offs.
+
+## Sponsor and Partner Integration Status
+
+ProofSight includes sponsor-aligned integration points, but it does not overclaim active third-party SDK usage. The current implementation keeps the core inspection workflow local and exposes clear adapter slots for official integrations when those services are available and tested.
+
+| Sponsor / partner | Current status | How ProofSight uses or aligns with it |
+|---|---|---|
+| Captur | Local equivalent implemented | The image trust gate validates evidence quality before inference, rejecting dark, blank, obstructed or suspiciously small images instead of generating unsafe findings. An official Captur CLI or SDK can be connected through `PROOFSIGHT_CAPTUR_COMMAND`. |
+| Cognee | Adapter-ready local memory stream | SQLite is the canonical local inspection memory. Each inspection also appends a Cognee-style record to `traces/cognee_ingest_queue.jsonl` for future official Cognee ingestion. |
+| Overmind | Adapter-ready local trace stream | Each inspection appends a structured trace to `traces/overmind_traces.jsonl`, making failures, model outputs and review requirements inspectable for later improvement analysis. |
+| Exo Labs | Placeholder for distributed inference | Pi-local Ollama is active today. Exo is represented as a configurable endpoint slot through `PROOFSIGHT_EXO_BASE_URL` and should only be enabled when a real Exo endpoint or cluster is running. |
+| Cosine | Engineering and review lane only | Cosine is not a runtime dependency. It is treated as a coding/review partner lane for improving implementation quality rather than part of the deployed inspection pipeline. |
+
+This section is deliberately conservative: local placeholders and adapter-ready streams are documented separately from verified official integrations.
 
 ## Installation
 
@@ -143,7 +158,7 @@ Expected Pi-local model:
 moondream
 ```
 
-The reasoning/report model is served by LM Studio on the MacBook. Replace `local-model` in `config.yaml` with the exact model ID returned by `http://100.106.72.5:1234/v1/models` once LM Studio is reachable.
+The reasoning/report model is served by LM Studio on the MacBook. Replace `local-model` in `config.yaml` with the exact model ID returned by `http://<MACBOOK_TAILSCALE_IP>:1234/v1/models` once LM Studio is reachable.
 
 ## Usage
 
@@ -226,7 +241,7 @@ models:
   provider: lmstudio
   ollama_base_url: http://127.0.0.1:11434
   vision: moondream
-  lmstudio_base_url: http://100.106.72.5:1234/v1
+  lmstudio_base_url: http://<MACBOOK_TAILSCALE_IP>:1234/v1
   reasoning: local-model
   report: local-model
 ```

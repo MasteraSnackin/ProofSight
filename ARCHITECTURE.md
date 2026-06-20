@@ -115,7 +115,7 @@ image_too_dark_or_obstructed
 ### Model Layer
 
 - **Responsibilities:** Describe valid images and convert observations into structured HSE findings and actions.
-- **Main technologies:** Ollama HTTP API at `http://127.0.0.1:11434/api/generate` for `moondream` vision; LM Studio OpenAI-compatible API at `http://100.106.72.5:1234/v1/chat/completions` for reasoning.
+- **Main technologies:** Ollama HTTP API at `http://127.0.0.1:11434/api/generate` for `moondream` vision; LM Studio OpenAI-compatible API at `http://<MACBOOK_TAILSCALE_IP>:1234/v1/chat/completions` for reasoning.
 - **Data owned or transformed:** Image description text, structured JSON findings and action plans.
 - **External dependencies:** Pi-local Ollama service, MacBook LM Studio server reachable over Tailscale, installed LM Studio model.
 - **Failure modes or operational concerns:** Slow inference on Pi CPU, unreachable MacBook LM Studio server, wrong LM Studio model ID, timeout, unparseable JSON or hallucinated findings. Provider failures are recorded as `model_error`.
@@ -128,7 +128,7 @@ models:
   provider: lmstudio
   ollama_base_url: http://127.0.0.1:11434
   vision: moondream
-  lmstudio_base_url: http://100.106.72.5:1234/v1
+  lmstudio_base_url: http://<MACBOOK_TAILSCALE_IP>:1234/v1
   reasoning: local-model
   report: local-model
 ```
