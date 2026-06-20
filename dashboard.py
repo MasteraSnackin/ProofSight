@@ -391,7 +391,7 @@ def set_action_status(action_id: str, status: str) -> None:
         con.commit()
 
 
-def render_index(message: str = "") -> str:
+def render_full_index(message: str = "") -> str:
     cfg = load_config()
     # Keep the landing dashboard deliberately light for mobile / Telegram in-app browsers.
     # Full history remains available via /reports and /api/status.
@@ -479,6 +479,50 @@ def render_index(message: str = "") -> str:
 </div></body></html>"""
 
 
+def render_index(message: str = "") -> str:
+    """Ultra-light mobile dashboard for Telegram/in-app browsers.
+
+    The full control surface remains at /full. Root must stay tiny and avoid
+    embedded images/forms so it opens reliably on phones and slow links.
+    """
+    cfg = load_config()
+    inspections = latest_inspections(5)
+    latest = inspections[0] if inspections else None
+    stats = dashboard_stats(latest_inspections(100), actions(100))
+    cam = camera_health(latest)
+    proof_state = service_state("proofsight.service")
+    dash_state = service_state("proofsight-dashboard.service")
+    ollama_state = service_state("ollama.service")
+    latest_bits = "<p>No inspections yet.</p>"
+    if latest:
+        image_name = Path(latest.get("evidence_path") or "").name
+        report_name = Path(latest.get("report_path") or "").name
+        trace_name = Path(latest.get("trace_path") or "").name
+        latest_bits = f"""
+        <div class=card>
+          <h2>Latest inspection</h2>
+          <p><b>{html.escape(latest.get('id') or '')}</b></p>
+          <p>{badge(latest.get('status','unknown'), latest.get('status') != 'image_rejected')} · {html.escape(latest.get('created_at') or '')}</p>
+          <p>{html.escape(latest.get('location') or '')}</p>
+          <p><a href="/evidence/{html.escape(image_name)}">open evidence image</a> · <a href="/report/{html.escape(report_name)}">open report</a> · <a href="/trace/{html.escape(trace_name)}">trace</a></p>
+        </div>
+        """
+    recent = "".join(
+        f"<li>{html.escape(i.get('created_at') or '')} — {badge(i.get('status','unknown'), i.get('status') != 'image_rejected')} — {html.escape(i.get('location') or '')}</li>"
+        for i in inspections
+    )
+    return f"""<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>ProofSight Mobile Dashboard</title>
+<style>
+body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#071018;color:#e9f4ff}} a{{color:#67e8f9}} header,.wrap{{max-width:900px;margin:auto;padding:16px}} header{{border-bottom:1px solid #1d3b52}} h1{{margin:0 0 6px;font-size:26px}} .muted{{color:#8aa7bb}} .grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}} .card{{background:#0e1b26;border:1px solid #1d3b52;border-radius:14px;padding:14px;margin:12px 0}} .metric b{{font-size:24px}} .badge{{display:inline-block;padding:3px 7px;border-radius:999px;background:#334155;color:#e2e8f0;font-size:12px}} .badge.good{{background:rgba(34,197,94,.18);color:#86efac;border:1px solid rgba(34,197,94,.35)}} .badge.bad{{background:rgba(239,68,68,.18);color:#fca5a5;border:1px solid rgba(239,68,68,.35)}} li{{margin:8px 0}} @media(max-width:650px){{.grid{{grid-template-columns:1fr}}}}
+</style></head><body><header><h1>ProofSight Mobile Dashboard</h1><p class=muted>Lightweight status page. Full controls are separate so this page opens reliably on phones.</p><p><a href="/">Refresh</a> · <a href="/full">Full dashboard</a> · <a href="/reports">Reports</a> · <a href="/api/status">API</a></p></header><main class=wrap>{f'<div class=card>{html.escape(message)}</div>' if message else ''}
+<section class=grid><div class=card><div class=muted>Agent</div>{badge(proof_state, proof_state=='active')}</div><div class=card><div class=muted>Dashboard</div>{badge(dash_state, dash_state=='active')}</div><div class=card><div class=muted>Ollama</div>{badge(ollama_state, ollama_state=='active')}</div><div class=card><div class=muted>Camera</div>{badge(cam['state'], cam['good'])}<br><span class=muted>{html.escape(str(cam.get('reason')))} · brightness {html.escape(str(cam.get('brightness')))}</span></div></section>
+<section class=grid><div class=card metric><div class=muted>Valid images</div><b>{stats['valid_images']}</b></div><div class=card metric><div class=muted>Rejected images</div><b>{stats['rejected_images']}</b></div><div class=card metric><div class=muted>Needs review</div><b>{stats['review_needed']}</b></div><div class=card metric><div class=muted>Open actions</div><b>{stats['open_actions']}</b></div></section>
+{latest_bits}
+<div class=card><h2>Recent inspections</h2><ul>{recent}</ul></div>
+<div class=card><h2>Controls</h2><p><a href="/full">Open full dashboard for run/review buttons</a></p><p class=muted>The mobile page intentionally avoids embedded images and many forms.</p></div>
+</main></body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ProofSightDashboard/2.0"
 
@@ -509,6 +553,9 @@ class Handler(BaseHTTPRequestHandler):
         cfg = load_config()
         if path == "/":
             self.send_text(render_index())
+            return
+        if path == "/full":
+            self.send_text(render_full_index())
             return
         if path == "/healthz":
             self.send_text("ok\n", "text/plain; charset=utf-8")
