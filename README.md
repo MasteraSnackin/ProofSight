@@ -443,6 +443,12 @@ Status: open, with human review required.
 
 ### Local and public demo URLs
 
+Demo video:
+
+```text
+https://github.com/MasteraSnackin/ProofSight/blob/main/docs/assets/proofsight-demo-video.mp4
+```
+
 Local dashboard URLs in the current Pi deployment:
 
 ```text
@@ -469,7 +475,7 @@ http://127.0.0.1:8787/reports.csv
 Public landing page:
 
 ```text
-<ADD VERCEL URL>
+https://hse-pi-agent.vercel.app/
 ```
 
 ## API and CLI Reference
