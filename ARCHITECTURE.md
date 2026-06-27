@@ -2,7 +2,7 @@
 
 ## Overview
 
-ProofSight is a local-first autonomous health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, recalls local memory, runs Pi-local vision through Ollama, generates inspection reports and action items, and exposes the result through a local dashboard, Telegram and a planned local screen UI. Its planned voice interface uses Vosk for offline speech-to-text commands on the Pi and Neuphonic for text-to-speech status/readback audio.
+ProofSight is a local-first autonomous health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, recalls local memory, runs Pi-local vision through Ollama, generates inspection reports and action items, and exposes the result through a local dashboard, Telegram and a planned local screen UI. Its planned voice interface uses Vosk for offline speech-to-text commands on the Pi and Neuphonic for text-to-speech status/readback audio. The appliance design also includes command-enabled onboard lighting so ProofSight can improve scene illumination before evidence capture.
 
 The deployed runtime is intentionally edge-oriented. The Raspberry Pi owns camera access, evidence validation, evidence storage, the SQLite database, reports, traces, partner-aligned JSONL artifacts and the dashboard. In the current deployment, the MacBook LM Studio service is a trusted LAN/Tailscale reasoning dependency. The target architecture is a fully self-contained Pi5 appliance where all process, decision-making and task execution run on-device with an attached screen and webcam. If any model dependency is unavailable, ProofSight records `model_error` rather than silently falling back or inventing findings.
 
@@ -24,6 +24,7 @@ A static Vercel landing page exists for public project presentation. It is not t
 - Keep evidence, traces and partner-aligned artifacts on-device.
 - Provide a dashboard for operations, reporting, human review and audit-pack export.
 - Support an optional voice path: Vosk offline STT for short spoken commands and Neuphonic TTS for concise spoken responses.
+- Support command-enabled onboard inspection lighting for improving low-light evidence capture.
 - Require human review before relying on AI-generated findings for formal compliance decisions.
 - Keep the public Vercel deployment separate from the private Pi runtime.
 
@@ -42,6 +43,7 @@ flowchart LR
   Telegram --> Agent
   LocalDash --> Agent[ProofSight Agent / Monitor]
   CLI --> Agent
+  Agent --> Light[Onboard Inspection Light]
   Agent --> Camera[Webcam /dev/video0]
   Agent --> Gate[Image Trust Gate]
   Gate --> Vision[Ollama moondream on Pi]
@@ -70,6 +72,7 @@ ProofSight is being built as a local autonomous agent, not a remote SaaS workflo
 |---|---|---|
 | Input | Telegram, CLI, dashboard, webcam | Local screen/touch UI, Telegram, CLI, dashboard, webcam and microphone commands via Vosk |
 | Voice I/O | Not required for the core inspection loop; adapter-ready | Vosk offline STT for commands; Neuphonic TTS for spoken summaries and retake prompts |
+| Onboard lighting | Adapter-ready command path | Command-controlled LED/inspection light for low-light capture support |
 | Evidence trust | Pi-local Pillow validation | Same, with site-tuned thresholds |
 | Vision | Pi-local Ollama `moondream` | Same or upgraded Pi-local vision model |
 | Memory | SQLite recurrence lookup plus Cognee-style JSONL | Same, with optional official Cognee SDK/API if explicitly configured |
@@ -119,7 +122,23 @@ The intended readback path is short and status-focused:
 inspection summary / retake prompt / review status -> Neuphonic TTS -> speaker
 ```
 
-Voice transcripts should be treated as untrusted operator input until parsed into an allowlisted command. Neuphonic API keys must not be committed, printed in logs, or stored in reports/traces.
+Voice transcripts and lighting requests should be treated as untrusted operator input until parsed into an allowlisted command. Neuphonic API keys must not be committed, printed in logs, or stored in reports/traces.
+
+### Onboard Lighting Control Layer
+
+- **Responsibilities:** Let the operator enable, disable or briefly pulse the appliance's onboard inspection light before evidence capture.
+- **Main technologies:** Adapter-ready local command/GPIO control; exact implementation can be a safe wrapper command, GPIO relay/MOSFET driver or LED controller depending on the final hardware.
+- **Data owned or transformed:** Lighting state, command audit events and optional trace metadata showing whether the light was used during capture.
+- **External dependencies:** Configured onboard light hardware and an allowlisted local control path such as `PROOFSIGHT_LIGHT_COMMAND` or a future GPIO adapter.
+- **Failure modes or operational concerns:** Wrong GPIO pin, unsupported hardware, heat/power draw, glare/reflection, accidental activation and unsafe device control. Lighting commands must be allowlisted and limited to the onboard inspection light only.
+
+The intended safe command path is:
+
+```text
+Telegram / Vosk / dashboard command -> allowlisted lighting action -> onboard inspection light on/off -> normal evidence capture
+```
+
+Example operator commands include `turn inspection light on`, `turn inspection light off` and `light for photo`. The light improves capture quality, but it does not override the evidence trust gate; dark, overexposed or obstructed images can still be rejected.
 
 ### Camera Capture
 
@@ -282,6 +301,7 @@ sequenceDiagram
   participant Voice as Mic / Vosk STT
   participant UI as Dashboard / CLI / Telegram
   participant Agent as ProofSight Agent
+  participant Light as Onboard Light
   participant Cam as Webcam
   participant Gate as Trust Gate
   participant VLM as Ollama moondream
@@ -295,6 +315,9 @@ sequenceDiagram
     Voice->>UI: Transcript text command
   end
   UI->>Agent: inspect(location)
+  opt Lighting requested or low-light pre-capture
+    Agent->>Light: Enable onboard inspection light
+  end
   Agent->>Cam: Capture JPEG
   Cam-->>Agent: Evidence image
   Agent->>Gate: Validate image quality
@@ -320,6 +343,9 @@ sequenceDiagram
   opt Voice readback enabled
     Agent-->>UI: Short summary text
     UI-->>User: Neuphonic TTS audio summary
+  end
+  opt Lighting was enabled for capture
+    Agent->>Light: Disable or restore previous light state
   end
   UI->>DB: Read latest state
   UI->>FS: Serve evidence, reports and traces
@@ -579,6 +605,7 @@ Model output is treated as a draft. The dashboard includes review controls becau
 - Add official Cognee ingestion if Cognee is installed and configured.
 - Add official Captur, Overmind and Exo integrations only after SDK/API access is tested.
 - Add the optional voice adapter: Vosk offline STT for spoken commands and Neuphonic TTS for spoken summaries.
+- Add the optional onboard lighting adapter for command-controlled inspection lighting.
 - Add a camera diagnostics page for exposure, shutter and lighting problems.
 - Add backup and retention policy for evidence, reports, traces and database files.
 - Add screenshots and a demo walkthrough for hackathon or portfolio review.
