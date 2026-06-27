@@ -2,7 +2,7 @@
 
 ## Overview
 
-ProofSight is a local-first autonomous health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, recalls local memory, runs Pi-local vision through Ollama, generates inspection reports and action items, and exposes the result through a local dashboard, Telegram and a planned local screen UI.
+ProofSight is a local-first autonomous health and safety inspection appliance for a Raspberry Pi 5. It captures visual evidence from a webcam, validates whether that evidence is usable, recalls local memory, runs Pi-local vision through Ollama, generates inspection reports and action items, and exposes the result through a local dashboard, Telegram and a planned local screen UI. Its planned voice interface uses Vosk for offline speech-to-text commands on the Pi and Neuphonic for text-to-speech status/readback audio.
 
 The deployed runtime is intentionally edge-oriented. The Raspberry Pi owns camera access, evidence validation, evidence storage, the SQLite database, reports, traces, partner-aligned JSONL artifacts and the dashboard. In the current deployment, the MacBook LM Studio service is a trusted LAN/Tailscale reasoning dependency. The target architecture is a fully self-contained Pi5 appliance where all process, decision-making and task execution run on-device with an attached screen and webcam. If any model dependency is unavailable, ProofSight records `model_error` rather than silently falling back or inventing findings.
 
@@ -11,7 +11,7 @@ A static Vercel landing page exists for public project presentation. It is not t
 ## Key Requirements
 
 - Run on a Raspberry Pi 5 with local storage.
-- Support a physical appliance form factor: Pi5, webcam and local screen/touch UI.
+- Support a physical appliance form factor: Pi5, webcam, microphone, speaker and local screen/touch UI.
 - Capture evidence from a local webcam at `/dev/video0`.
 - Validate evidence quality before model inference.
 - Reject dark, blank, obstructed or suspiciously small images by default.
@@ -23,6 +23,7 @@ A static Vercel landing page exists for public project presentation. It is not t
 - Store inspection metadata, action items and review states in SQLite.
 - Keep evidence, traces and partner-aligned artifacts on-device.
 - Provide a dashboard for operations, reporting, human review and audit-pack export.
+- Support an optional voice path: Vosk offline STT for short spoken commands and Neuphonic TTS for concise spoken responses.
 - Require human review before relying on AI-generated findings for formal compliance decisions.
 - Keep the public Vercel deployment separate from the private Pi runtime.
 
@@ -34,6 +35,9 @@ flowchart LR
   Operator --> LocalDash[Local Dashboard :8787]
   Operator --> Telegram[Telegram Chat]
   Operator --> CLI[ProofSight CLI]
+  Operator --> Mic[Microphone]
+  Mic --> Vosk[Vosk Offline STT]
+  Vosk --> Agent
   Screen --> Agent[ProofSight Agent / Monitor]
   Telegram --> Agent
   LocalDash --> Agent[ProofSight Agent / Monitor]
@@ -43,6 +47,8 @@ flowchart LR
   Gate --> Vision[Ollama moondream on Pi]
   Vision --> Reasoning[LM Studio on MacBook over Tailscale]
   Reasoning --> Reports[Markdown Reports]
+  Reports --> Neuphonic[Neuphonic TTS]
+  Neuphonic --> Speaker[Speaker / Audio Output]
   Agent --> DB[(SQLite DB)]
   Agent --> Evidence[Evidence JPEGs]
   Agent --> Traces[JSON Traces / JSONL Streams]
@@ -62,7 +68,8 @@ ProofSight is being built as a local autonomous agent, not a remote SaaS workflo
 
 | Loop stage | Current implementation | Self-contained target |
 |---|---|---|
-| Input | Telegram, CLI, dashboard, webcam | Local screen/touch UI, Telegram, CLI, dashboard, webcam |
+| Input | Telegram, CLI, dashboard, webcam | Local screen/touch UI, Telegram, CLI, dashboard, webcam and microphone commands via Vosk |
+| Voice I/O | Not required for the core inspection loop; adapter-ready | Vosk offline STT for commands; Neuphonic TTS for spoken summaries and retake prompts |
 | Evidence trust | Pi-local Pillow validation | Same, with site-tuned thresholds |
 | Vision | Pi-local Ollama `moondream` | Same or upgraded Pi-local vision model |
 | Memory | SQLite recurrence lookup plus Cognee-style JSONL | Same, with optional official Cognee SDK/API if explicitly configured |
@@ -91,6 +98,28 @@ config.yaml
 ```
 
 `proofsight.py` is the current command entry point. `vasper_qa.py` remains as the implementation and compatibility path so older commands and imports do not break.
+
+### Voice Command and Readback Layer
+
+- **Responsibilities:** Convert short spoken operator commands into ProofSight text commands, and speak concise inspection status/readback messages.
+- **Main technologies:** Vosk for offline speech-to-text on the Pi; Neuphonic for text-to-speech audio output when configured.
+- **Data owned or transformed:** Microphone audio becomes command text; inspection summaries, retake requests and review-needed messages become audio output.
+- **External dependencies:** Local microphone/speaker, a local Vosk model directory such as `PROOFSIGHT_VOSK_MODEL_PATH`, and an optional Neuphonic API key supplied as `NEUPHONIC_API_KEY`.
+- **Failure modes or operational concerns:** Microphone noise, wake-word/false-trigger risk, transcription errors, network/API failure for Neuphonic, and secret handling. Voice should never bypass evidence validation, report storage or human review. If voice fails, Telegram, CLI and dashboard operation remain available.
+
+The intended command path is deliberately conservative:
+
+```text
+microphone audio -> Vosk transcript -> ProofSight command parser -> normal inspection workflow
+```
+
+The intended readback path is short and status-focused:
+
+```text
+inspection summary / retake prompt / review status -> Neuphonic TTS -> speaker
+```
+
+Voice transcripts should be treated as untrusted operator input until parsed into an allowlisted command. Neuphonic API keys must not be committed, printed in logs, or stored in reports/traces.
 
 ### Camera Capture
 
@@ -250,7 +279,8 @@ vercel.json
 ```mermaid
 sequenceDiagram
   participant User as Operator
-  participant UI as Dashboard / CLI
+  participant Voice as Mic / Vosk STT
+  participant UI as Dashboard / CLI / Telegram
   participant Agent as ProofSight Agent
   participant Cam as Webcam
   participant Gate as Trust Gate
@@ -260,6 +290,10 @@ sequenceDiagram
   participant FS as Local Files
 
   User->>UI: Start inspection
+  opt Spoken command
+    User->>Voice: "take picture and check it"
+    Voice->>UI: Transcript text command
+  end
   UI->>Agent: inspect(location)
   Agent->>Cam: Capture JPEG
   Cam-->>Agent: Evidence image
@@ -282,6 +316,10 @@ sequenceDiagram
       Agent->>FS: Write report, trace and evidence
       Agent->>DB: Save inspection and action items
     end
+  end
+  opt Voice readback enabled
+    Agent-->>UI: Short summary text
+    UI-->>User: Neuphonic TTS audio summary
   end
   UI->>DB: Read latest state
   UI->>FS: Serve evidence, reports and traces
@@ -438,7 +476,7 @@ Known constraints:
 
 ### Secrets management
 
-The local Ollama vision step does not require API keys. LM Studio is expected to run on a trusted MacBook over Tailscale and normally accepts a dummy local bearer token. Optional partner endpoints may use environment variables, but no secrets should be committed into the repository.
+The local Ollama vision step and Vosk offline speech-to-text path do not require API keys. LM Studio is expected to run on a trusted MacBook over Tailscale and normally accepts a dummy local bearer token. Neuphonic text-to-speech requires an API key only when the optional voice readback adapter is enabled. Optional partner endpoints may use environment variables, but no secrets should be committed into the repository.
 
 ### Client/server trust boundaries
 
@@ -456,7 +494,7 @@ Evidence images and inspection reports may contain workplace-sensitive visual in
 
 ### Third-party provider risk
 
-Current sponsor integrations are local placeholder or adapter-ready layers unless explicitly configured. Captur, Cognee, Overmind, Exo Labs and Cosine are not currently active remote runtime dependencies in the current LM Studio/Tailscale setup.
+Current sponsor integrations and voice providers are local placeholder or adapter-ready layers unless explicitly configured. Captur, Cognee, Overmind, Exo Labs and Cosine are not currently active remote runtime dependencies in the current LM Studio/Tailscale setup. Vosk is intended as a local/offline STT component; Neuphonic is an optional remote TTS provider and should not block safety-critical inspection if unavailable.
 
 LM Studio runs as a trusted local-network model provider. If it is misconfigured, offline or serving a different model than expected, ProofSight may produce `model_error` or lower-quality findings.
 
@@ -540,6 +578,7 @@ Model output is treated as a draft. The dashboard includes review controls becau
 - Complete Vercel authentication and replace `<ADD VERCEL URL>` with the live public landing page URL.
 - Add official Cognee ingestion if Cognee is installed and configured.
 - Add official Captur, Overmind and Exo integrations only after SDK/API access is tested.
+- Add the optional voice adapter: Vosk offline STT for spoken commands and Neuphonic TTS for spoken summaries.
 - Add a camera diagnostics page for exposure, shutter and lighting problems.
 - Add backup and retention policy for evidence, reports, traces and database files.
 - Add screenshots and a demo walkthrough for hackathon or portfolio review.
